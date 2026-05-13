@@ -1,0 +1,39 @@
+[package]
+name         = "persona-introspect"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.88"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/LiGoldragon/persona-introspect"
+description  = "Persona inspection-plane daemon and CLI."
+publish      = false
+
+[lib]
+name = "persona_introspect"
+path = "src/lib.rs"
+
+[[bin]]
+name = "introspect"
+path = "src/main.rs"
+
+[[bin]]
+name = "persona-introspect-daemon"
+path = "src/bin/persona_introspect_daemon.rs"
+
+[dependencies]
+kameo                     = { version = "0.20", default-features = false }
+nota-codec                = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+rkyv                      = "0.8"
+signal-core               = { git = "https://github.com/LiGoldragon/signal-core.git" }
+signal-persona-auth       = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }
+signal-persona-introspect = { git = "https://github.com/LiGoldragon/signal-persona-introspect.git" }
+thiserror                 = "2"
+tokio                     = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused      = { level = "warn", priority = -1 }
+dead_code   = "warn"
