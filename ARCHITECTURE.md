@@ -86,9 +86,8 @@ graph TD
 ## 5. Status
 
 The daemon binds a Unix socket, applies the requested socket mode when supplied,
-and serves `signal-persona-introspect` frames through the Kameo root. Operator-
-assistant is implementing per `~/primary/reports/designer/160-persona-introspect-brief-for-operator-assistant.md`'s
-three-slice plan:
+and serves `signal-persona-introspect` frames through the Kameo root. The
+three-slice implementation plan:
 
 - **Slice 1 (in progress):** verb-mapping witness + central envelope
   extension (ComponentObservations, ListRecordKinds,
@@ -107,5 +106,3 @@ three-slice plan:
   peer subscriptions + cache-backed `DeliveryTrace`. persona-introspect
   becomes a full sema-engine consumer for subscription registrations +
   correlation cache.
-
-Canonical handoff: `~/primary/reports/designer/160-persona-introspect-brief-for-operator-assistant.md`.
