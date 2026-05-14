@@ -80,7 +80,7 @@ graph TD
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-persona-introspect`; target observation records come from each peer's `signal-persona-*` contract. |
-| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` (returns `signal_core::SemaVerb` until the signal-core `SignalVerb` rename lands per `/50`/`/162`) + round-trip tests asserting verb+payload alignment. All current variants are `Match`; `SubscribeComponent` (Slice 3) is `Subscribe`. |
+| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` (returns `signal_core::SemaVerb` until the signal-core `SignalVerb` rename lands) + round-trip tests asserting verb+payload alignment. All current variants are `Match`; `SubscribeComponent` (Slice 3) is `Subscribe`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan (Slice 3 witness): `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 
 ## 5. Status
@@ -96,7 +96,7 @@ three-slice implementation plan:
   fan-out + introspect skeleton actor + record family type
   definitions + sema-engine dependency wired. `DeliveryTrace`
   returns `AwaitingCorrelationCache` until Slice 3.
-- **Slice 2 (gated on sema-engine widening):** `/41` terminal +
+- **Slice 2 (gated on sema-engine widening):** terminal +
   router observation contracts + handlers + introspect clients +
   CLI + Nix witness. Handler-side storage uses
   `Engine::register_index` + `QueryPlan::ByIndex` /
