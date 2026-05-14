@@ -1,16 +1,16 @@
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use persona_introspect::{
     SupervisionFrameCodec,
-    daemon::{IntrospectionDaemon, IntrospectionSignalClient, SocketMode},
+    daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
 };
-use signal_core::{FrameBody, Request};
+use signal_core::{FrameBody, Request, SignalVerb};
 use signal_persona::{
     ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind, ComponentName,
     ComponentReadinessQuery, SupervisionFrame, SupervisionProtocolVersion, SupervisionReply,
@@ -19,8 +19,8 @@ use signal_persona::{
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
     ComponentReadiness, ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery,
-    DeliveryTraceStatus, EngineSnapshotQuery, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, PrototypeWitnessQuery,
+    DeliveryTraceStatus, EngineSnapshotQuery, Frame as IntrospectionFrame, IntrospectionReply,
+    IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
 };
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
@@ -64,6 +64,23 @@ fn daemon_applies_spawn_envelope_socket_mode() {
         & 0o777;
 
     assert_eq!(mode, 0o600);
+}
+
+#[test]
+fn introspection_frame_codec_rejects_mismatched_signal_verb() {
+    let frame = IntrospectionFrame::new(FrameBody::Request(Request::unchecked_operation(
+        SignalVerb::Assert,
+        IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
+            engine: EngineId::new("prototype"),
+        }),
+    )));
+    let bytes = frame.encode_length_prefixed().expect("frame encodes");
+    let mut input = bytes.as_slice();
+    let error = IntrospectionFrameCodec::default()
+        .read_request(&mut input)
+        .expect_err("mismatched verb is rejected");
+
+    assert!(error.to_string().contains("signal verb mismatch"));
 }
 
 #[test]
@@ -218,7 +235,7 @@ fn write_supervision_request(stream: &mut UnixStream, request: SupervisionReques
     stream.flush().expect("supervision request flushes");
 }
 
-fn wait_for_socket(socket: &PathBuf) {
+fn wait_for_socket(socket: &Path) {
     let started = Instant::now();
     while started.elapsed() < Duration::from_secs(5) {
         if socket.exists() {
