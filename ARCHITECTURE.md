@@ -21,10 +21,16 @@ fact.
 - Fan-in of typed observations.
 - **`introspect.redb`** — persona-introspect's own typed database,
   opened through `sema-engine`. Stores: query/reply/error audit
-  trail; subscription registrations (post-Slice 3); correlation
-  cache keyed by `CorrelationId` (post-Slice 3, populated by
+  trail; subscription registrations (post-Slice 3); delivery trace
+  cache keyed by `DeliveryTraceKey` (post-Slice 3, populated by
   Subscribe deltas from peer streams).
 - NOTA projection for humans, agents, and future UIs.
+
+`DeliveryTraceKey` is an introspection-domain key for joining router, harness,
+and terminal observations that belong to the same message-delivery trace. It is
+not a Signal exchange id, not a request/reply correlation id, and not domain
+payload metadata. Transport ordering and reply matching belong to the Signal
+frame layer; delivery-trace joining belongs to persona-introspect's own store.
 
 ## 2. Non-ownership
 
@@ -81,7 +87,7 @@ graph TD
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
 | The daemon applies the managed spawn-envelope socket mode. | `checks.*.test-daemon-applies-spawn-envelope-socket-mode`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-persona-introspect`; target observation records come from each peer's `signal-persona-*` contract. |
-| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` (returns `signal_core::SemaVerb` until the signal-core `SignalVerb` rename lands) + round-trip tests asserting verb+payload alignment. All current variants are `Match`; `SubscribeComponent` (Slice 3) is `Subscribe`. |
+| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. All current variants are `Match`; `SubscribeComponent` (Slice 3) is `Subscribe`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan (Slice 3 witness): `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 
 ## 5. Status
@@ -106,4 +112,4 @@ three-slice implementation plan:
   commit-then-emit):** `SubscribeComponent` wire variant + forwarded
   peer subscriptions + cache-backed `DeliveryTrace`. persona-introspect
   becomes a full sema-engine consumer for subscription registrations +
-  correlation cache.
+  delivery trace cache.
