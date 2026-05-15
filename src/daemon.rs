@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use kameo::actor::ActorRef;
 use kameo::error::SendError;
-use signal_core::{FrameBody, Reply, Request};
+use signal_core::{
+    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, NonEmpty, Reply, Request,
+    SessionEpoch, SignalVerb, SubReply,
+};
 use signal_persona_introspect::{
     Frame as IntrospectionFrame, IntrospectionReply, IntrospectionRequest,
 };
@@ -191,9 +194,12 @@ impl IntrospectionDaemon {
     ) -> Result<IntrospectionReply> {
         let mut connection = IntrospectionConnection::from_stream(stream);
         let request = connection.read_signal_request()?;
-        let reply = match runtime
-            .block_on(async { root.ask(HandleIntrospectionRequest { request }).await })
-        {
+        let reply = match runtime.block_on(async {
+            root.ask(HandleIntrospectionRequest {
+                request: request.request,
+            })
+            .await
+        }) {
             Ok(reply) => reply,
             Err(SendError::HandlerError(error)) => return Err(error),
             Err(error) => {
@@ -203,7 +209,7 @@ impl IntrospectionDaemon {
                 });
             }
         };
-        connection.write_signal_reply(reply.clone())?;
+        connection.write_signal_reply(request.exchange, request.verb, reply.clone())?;
         Ok(reply)
     }
 }
@@ -256,13 +262,18 @@ impl IntrospectionConnection {
         }
     }
 
-    pub fn read_signal_request(&mut self) -> Result<IntrospectionRequest> {
+    pub fn read_signal_request(&mut self) -> Result<ReceivedIntrospectionRequest> {
         self.signal.read_request(&mut self.stream)
     }
 
-    pub fn write_signal_reply(&mut self, reply: IntrospectionReply) -> Result<()> {
+    pub fn write_signal_reply(
+        &mut self,
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+        reply: IntrospectionReply,
+    ) -> Result<()> {
         let stream = self.stream.get_mut();
-        self.signal.write_reply(stream, reply)
+        self.signal.write_reply(stream, exchange, verb, reply)
     }
 }
 
@@ -301,14 +312,28 @@ impl IntrospectionFrameCodec {
         Ok(())
     }
 
-    pub fn read_request(&self, reader: &mut impl Read) -> Result<IntrospectionRequest> {
+    pub fn read_request(&self, reader: &mut impl Read) -> Result<ReceivedIntrospectionRequest> {
         match self.read_frame(reader)?.into_body() {
-            FrameBody::Request(request) => {
-                request
-                    .into_payload_checked()
-                    .map_err(|error| Error::UnexpectedSignalFrame {
+            FrameBody::Request { exchange, request } => {
+                let checked = request.into_checked().map_err(|(error, _request)| {
+                    Error::UnexpectedSignalFrame {
                         got: error.to_string(),
-                    })
+                    }
+                })?;
+                let (operation, tail) = checked.operations.into_head_and_tail();
+                if !tail.is_empty() {
+                    return Err(Error::UnexpectedSignalFrame {
+                        got: format!(
+                            "expected one introspection operation, got {}",
+                            tail.len() + 1
+                        ),
+                    });
+                }
+                Ok(ReceivedIntrospectionRequest {
+                    exchange,
+                    verb: operation.verb,
+                    request: operation.payload,
+                })
             }
             other => Err(Error::UnexpectedSignalFrame {
                 got: format!("{other:?}"),
@@ -318,7 +343,28 @@ impl IntrospectionFrameCodec {
 
     pub fn read_reply(&self, reader: &mut impl Read) -> Result<IntrospectionReply> {
         match self.read_frame(reader)?.into_body() {
-            FrameBody::Reply(Reply::Operation(reply)) => Ok(reply),
+            FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => {
+                    let (sub_reply, tail) = per_operation.into_head_and_tail();
+                    if !tail.is_empty() {
+                        return Err(Error::UnexpectedSignalFrame {
+                            got: format!(
+                                "expected one introspection reply operation, got {}",
+                                tail.len() + 1
+                            ),
+                        });
+                    }
+                    match sub_reply {
+                        SubReply::Ok { payload, .. } => Ok(payload),
+                        other => Err(Error::UnexpectedSignalFrame {
+                            got: format!("{other:?}"),
+                        }),
+                    }
+                }
+                Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
+                    got: reason.to_string(),
+                }),
+            },
             other => Err(Error::UnexpectedSignalFrame {
                 got: format!("{other:?}"),
             }),
@@ -330,20 +376,50 @@ impl IntrospectionFrameCodec {
         writer: &mut impl Write,
         request: IntrospectionRequest,
     ) -> Result<()> {
-        let frame = IntrospectionFrame::new(FrameBody::Request(Request::from_payload(request)));
+        let frame = IntrospectionFrame::new(FrameBody::Request {
+            exchange: synthetic_exchange(),
+            request: Request::from_payload(request),
+        });
         self.write_frame(writer, &frame)
     }
 
-    pub fn write_reply(&self, writer: &mut impl Write, reply: IntrospectionReply) -> Result<()> {
-        let frame = IntrospectionFrame::new(FrameBody::Reply(Reply::operation(reply)));
+    pub fn write_reply(
+        &self,
+        writer: &mut impl Write,
+        exchange: ExchangeIdentifier,
+        verb: SignalVerb,
+        reply: IntrospectionReply,
+    ) -> Result<()> {
+        let frame = IntrospectionFrame::new(FrameBody::Reply {
+            exchange,
+            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
+                verb,
+                payload: reply,
+            })),
+        });
         self.write_frame(writer, &frame)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedIntrospectionRequest {
+    exchange: ExchangeIdentifier,
+    verb: SignalVerb,
+    request: IntrospectionRequest,
 }
 
 impl Default for IntrospectionFrameCodec {
     fn default() -> Self {
         Self::new(1024 * 1024)
     }
+}
+
+fn synthetic_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(1),
+        ExchangeLane::Connector,
+        ExchangeSequence::new(1),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
