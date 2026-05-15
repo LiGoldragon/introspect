@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use kameo::actor::ActorRef;
 use kameo::error::SendError;
 use signal_core::{
-    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, NonEmpty, Reply, Request,
-    SessionEpoch, SignalVerb, SubReply,
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
+    SignalVerb, SubReply,
 };
 use signal_persona_introspect::{
-    Frame as IntrospectionFrame, IntrospectionReply, IntrospectionRequest,
+    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
+    IntrospectionRequest,
 };
 
 use crate::error::{Error, Result};
@@ -418,7 +419,7 @@ fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
         SessionEpoch::new(1),
         ExchangeLane::Connector,
-        ExchangeSequence::new(1),
+        LaneSequence::new(1),
     )
 }
 

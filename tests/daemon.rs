@@ -11,19 +11,20 @@ use persona_introspect::{
     daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
 };
 use signal_core::{
-    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody, NonEmpty, Operation, Request,
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
     RequestRejectionReason, SessionEpoch, SignalVerb,
 };
 use signal_persona::{
     ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind, ComponentName,
-    ComponentReadinessQuery, SupervisionFrame, SupervisionProtocolVersion, SupervisionReply,
-    SupervisionRequest,
+    ComponentReadinessQuery, SupervisionFrame, SupervisionFrameBody, SupervisionProtocolVersion,
+    SupervisionReply, SupervisionRequest,
 };
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
     ComponentReadiness, ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery,
-    DeliveryTraceStatus, EngineSnapshotQuery, Frame as IntrospectionFrame, IntrospectionReply,
-    IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
+    DeliveryTraceStatus, EngineSnapshotQuery, IntrospectionFrame,
+    IntrospectionFrameBody as FrameBody, IntrospectionReply, IntrospectionRequest,
+    IntrospectionTarget, PrototypeWitnessQuery,
 };
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
@@ -236,7 +237,7 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
 }
 
 fn write_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
-    let frame = SupervisionFrame::new(FrameBody::Request {
+    let frame = SupervisionFrame::new(SupervisionFrameBody::Request {
         exchange: test_exchange(),
         request: Request::from_payload(request),
     });
@@ -253,7 +254,7 @@ fn test_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
         SessionEpoch::new(1),
         ExchangeLane::Connector,
-        ExchangeSequence::new(1),
+        LaneSequence::new(1),
     )
 }
 
