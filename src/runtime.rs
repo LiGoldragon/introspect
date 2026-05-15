@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use kameo::actor::{Actor, ActorRef, Spawn};
-use kameo::error::Infallible;
+use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
+use kameo::error::{ActorStopReason, Infallible, SendError};
 use kameo::message::{Context, Message};
 use signal_persona_introspect::{
     ComponentReadiness, ComponentSnapshot, DeliveryTrace, DeliveryTraceStatus, EngineSnapshot,
@@ -9,7 +9,10 @@ use signal_persona_introspect::{
     PrototypeWitnessQuery,
 };
 
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::store::{
+    IntrospectionStore, ObservationSequence, RecordObservation, StoreLocation, StoredObservation,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetSocketDirectory {
@@ -66,12 +69,13 @@ pub struct IntrospectionRoot {
     manager_client: ActorRef<ManagerClient>,
     router_client: ActorRef<RouterClient>,
     terminal_client: ActorRef<TerminalClient>,
+    store: ActorRef<IntrospectionStore>,
     projection: ActorRef<NotaProjection>,
     handled_queries: u64,
 }
 
 impl IntrospectionRoot {
-    pub async fn start_root(input: IntrospectionRootInput) -> ActorRef<Self> {
+    pub async fn start_root(input: IntrospectionRootInput) -> Result<ActorRef<Self>> {
         let target_directory = TargetDirectory::spawn(TargetDirectory::new(input.targets.clone()));
         let query_planner = QueryPlanner::spawn(QueryPlanner::new());
         let manager_client =
@@ -79,16 +83,18 @@ impl IntrospectionRoot {
         let router_client = RouterClient::spawn(RouterClient::new(input.targets.router_socket));
         let terminal_client =
             TerminalClient::spawn(TerminalClient::new(input.targets.terminal_socket));
+        let store = IntrospectionStore::spawn(IntrospectionStore::open(&input.store)?);
         let projection = NotaProjection::spawn(NotaProjection::new());
-        Self::spawn(Self {
+        Ok(Self::spawn(Self {
             target_directory,
             query_planner,
             manager_client,
             router_client,
             terminal_client,
+            store,
             projection,
             handled_queries: 0,
-        })
+        }))
     }
 
     fn prototype_witness(&mut self, query: PrototypeWitnessQuery) -> IntrospectionReply {
@@ -99,6 +105,7 @@ impl IntrospectionRoot {
             &self.manager_client,
             &self.router_client,
             &self.terminal_client,
+            &self.store,
             &self.projection,
         );
         IntrospectionReply::PrototypeWitness(PrototypeWitness {
@@ -142,11 +149,49 @@ impl IntrospectionRoot {
             IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query),
         }
     }
+
+    async fn record_observation(
+        &self,
+        request: IntrospectionRequest,
+        reply: IntrospectionReply,
+    ) -> Result<()> {
+        let observation = StoredObservation::new(
+            ObservationSequence::new(self.handled_queries),
+            request,
+            reply,
+        );
+        match self.store.ask(RecordObservation::new(observation)).await {
+            Ok(_receipt) => Ok(()),
+            Err(SendError::HandlerError(error)) => Err(error),
+            Err(error) => Err(Error::Actor {
+                operation: "record introspection observation",
+                detail: format!("{error:?}"),
+            }),
+        }
+    }
+
+    async fn stop_children(&self) {
+        let _ = self.target_directory.stop_gracefully().await;
+        let _ = self.query_planner.stop_gracefully().await;
+        let _ = self.manager_client.stop_gracefully().await;
+        let _ = self.router_client.stop_gracefully().await;
+        let _ = self.terminal_client.stop_gracefully().await;
+        let _ = self.store.stop_gracefully().await;
+        let _ = self.projection.stop_gracefully().await;
+        self.target_directory.wait_for_shutdown().await;
+        self.query_planner.wait_for_shutdown().await;
+        self.manager_client.wait_for_shutdown().await;
+        self.router_client.wait_for_shutdown().await;
+        self.terminal_client.wait_for_shutdown().await;
+        self.store.wait_for_shutdown().await;
+        self.projection.wait_for_shutdown().await;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrospectionRootInput {
     pub targets: TargetSocketDirectory,
+    pub store: StoreLocation,
 }
 
 impl Actor for IntrospectionRoot {
@@ -158,6 +203,15 @@ impl Actor for IntrospectionRoot {
         _actor_ref: ActorRef<Self>,
     ) -> std::result::Result<Self, Self::Error> {
         Ok(state)
+    }
+
+    async fn on_stop(
+        &mut self,
+        _actor_reference: WeakActorRef<Self>,
+        _reason: ActorStopReason,
+    ) -> std::result::Result<(), Self::Error> {
+        self.stop_children().await;
+        Ok(())
     }
 }
 
@@ -173,7 +227,10 @@ impl Message<ExplainPrototypeWitness> for IntrospectionRoot {
         message: ExplainPrototypeWitness,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        Ok(self.prototype_witness(message.query))
+        let request = IntrospectionRequest::PrototypeWitness(message.query);
+        let reply = self.handle_request(request.clone());
+        self.record_observation(request, reply.clone()).await?;
+        Ok(reply)
     }
 }
 
@@ -189,7 +246,10 @@ impl Message<HandleIntrospectionRequest> for IntrospectionRoot {
         message: HandleIntrospectionRequest,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        Ok(self.handle_request(message.request))
+        let request = message.request;
+        let reply = self.handle_request(request.clone());
+        self.record_observation(request, reply.clone()).await?;
+        Ok(reply)
     }
 }
 

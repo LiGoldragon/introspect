@@ -17,6 +17,10 @@ pub enum Error {
     },
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_core::FrameError),
+    #[error("sema-engine: {0}")]
+    SemaEngine(#[from] sema_engine::Error),
+    #[error("sema: {0}")]
+    Sema(#[from] sema::Error),
     #[error("nota codec: {0}")]
     Nota(#[from] nota_codec::Error),
     #[error("io: {0}")]

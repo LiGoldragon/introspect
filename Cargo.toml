@@ -24,6 +24,8 @@ path = "src/bin/persona_introspect_daemon.rs"
 kameo                     = { version = "0.20", default-features = false, features = ["macros"] }
 nota-codec                = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 rkyv                      = "0.8"
+sema                      = { git = "https://github.com/LiGoldragon/sema.git" }
+sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git" }
 signal-core               = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 signal-persona-auth       = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }

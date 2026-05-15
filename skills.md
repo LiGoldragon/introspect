@@ -20,6 +20,8 @@ Before changing code in this repo, read:
 - `persona-introspect-daemon`
 - `introspect` CLI
 - Runtime fan-out to component daemons over Signal.
+- Local observation audit state in `introspect.redb`, opened through
+  `sema-engine`.
 - NOTA projection at the CLI edge.
 
 ## What this repo does not own

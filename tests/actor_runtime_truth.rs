@@ -1,15 +1,20 @@
 use persona_introspect::runtime::{
     ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
+use persona_introspect::store::StoreLocation;
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{DeliveryTraceStatus, IntrospectionReply, PrototypeWitnessQuery};
 
 #[test]
 fn prototype_witness_uses_introspection_root_actor() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let root = runtime.block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-        targets: TargetSocketDirectory::empty(),
-    }));
+    let directory = tempfile::tempdir().expect("tempdir");
+    let root = runtime
+        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
+            targets: TargetSocketDirectory::empty(),
+            store: StoreLocation::new(directory.path().join("introspect.redb")),
+        }))
+        .expect("root starts");
     let reply = runtime
         .block_on(async {
             root.ask(ExplainPrototypeWitness {

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use persona_introspect::{
     SupervisionFrameCodec,
     daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
+    store::StoreLocation,
 };
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
@@ -32,6 +33,7 @@ fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let socket = directory.path().join("introspect.sock");
     let bound = IntrospectionDaemon::from_socket(socket.clone())
         .with_socket_mode(SocketMode::from_octal(0o600))
+        .with_store(StoreLocation::new(directory.path().join("introspect.redb")))
         .bind()
         .expect("daemon binds");
     assert_eq!(
@@ -58,6 +60,7 @@ fn daemon_applies_spawn_envelope_socket_mode() {
     let socket = directory.path().join("introspect.sock");
     let bound = IntrospectionDaemon::from_socket(socket)
         .with_socket_mode(SocketMode::from_octal(0o600))
+        .with_store(StoreLocation::new(directory.path().join("introspect.redb")))
         .bind()
         .expect("daemon binds");
 
@@ -123,6 +126,10 @@ fn daemon_answers_component_supervision_relation() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_persona-introspect-daemon"))
         .arg(&socket)
         .env("PERSONA_SOCKET_MODE", "600")
+        .env(
+            "PERSONA_STATE_PATH",
+            directory.path().join("introspect.redb"),
+        )
         .env("PERSONA_SUPERVISION_SOCKET_PATH", &supervision_socket)
         .env("PERSONA_SUPERVISION_SOCKET_MODE", "600")
         .spawn()

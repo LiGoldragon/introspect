@@ -8,6 +8,7 @@ use signal_persona_introspect::{IntrospectionRequest, PrototypeWitnessQuery};
 use crate::daemon::IntrospectionSocket;
 use crate::error::{Error, Result};
 use crate::runtime::{ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput};
+use crate::store::StoreLocation;
 use crate::surface::{Input, Output};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +63,8 @@ impl IntrospectCommandLine {
         let runtime = tokio::runtime::Runtime::new()?;
         let root = runtime.block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
             targets: crate::runtime::TargetSocketDirectory::empty(),
-        }));
+            store: StoreLocation::from_environment(),
+        }))?;
         let reply = match input {
             Input::PrototypeWitness(query) => runtime.block_on(async {
                 root.ask(ExplainPrototypeWitness {

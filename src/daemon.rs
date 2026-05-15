@@ -19,6 +19,7 @@ use crate::error::{Error, Result};
 use crate::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
+use crate::store::StoreLocation;
 use crate::supervision::{SupervisionListener, SupervisionProfile};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +119,7 @@ impl SocketMode {
 pub struct IntrospectionDaemon {
     socket: IntrospectionSocket,
     targets: TargetSocketDirectory,
+    store: StoreLocation,
     socket_mode: Option<SocketMode>,
 }
 
@@ -126,6 +128,7 @@ impl IntrospectionDaemon {
         Self {
             socket,
             targets: TargetSocketDirectory::empty(),
+            store: StoreLocation::from_environment(),
             socket_mode: SocketMode::from_environment(),
         }
     }
@@ -136,6 +139,11 @@ impl IntrospectionDaemon {
 
     pub fn with_targets(mut self, targets: TargetSocketDirectory) -> Self {
         self.targets = targets;
+        self
+    }
+
+    pub fn with_store(mut self, store: StoreLocation) -> Self {
+        self.store = store;
         self
     }
 
@@ -175,7 +183,8 @@ impl IntrospectionDaemon {
         let runtime = tokio::runtime::Runtime::new()?;
         let root = runtime.block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
             targets: self.targets,
-        }));
+            store: self.store,
+        }))?;
         Ok(BoundIntrospectionDaemon {
             socket: self.socket.path,
             runtime,

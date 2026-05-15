@@ -81,7 +81,7 @@ graph TD
 | Constraint | Witness |
 |---|---|
 | The daemon does not open peer redb files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
-| The daemon opens `introspect.redb` through `sema-engine`. | Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
+| The daemon opens `introspect.redb` through `sema-engine`. | `tests/store.rs`: root-handled requests persist an observation, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
 | The CLI renders NOTA only at the edge. | CLI and projection tests; component clients return typed Signal replies; no `nota-codec` usage in daemon runtime path. |
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
@@ -101,8 +101,9 @@ three-slice implementation plan:
   AwaitingCorrelationCache) + real `EngineSnapshot` /
   `ComponentSnapshot` / `PrototypeWitness` replies via Signal
   fan-out + introspect skeleton actor + record family type
-  definitions + sema-engine dependency wired. `DeliveryTrace`
-  returns `AwaitingCorrelationCache` until Slice 3.
+  definitions + local `IntrospectionStore` opened through
+  `sema-engine`. `DeliveryTrace` returns `AwaitingCorrelationCache`
+  until Slice 3.
 - **Slice 2 (gated on sema-engine widening):** terminal +
   router observation contracts + handlers + introspect clients +
   CLI + Nix witness. Handler-side storage uses

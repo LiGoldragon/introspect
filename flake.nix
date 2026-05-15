@@ -71,6 +71,13 @@
               cargoTestExtraArgs = "--test daemon daemon_answers_component_supervision_relation -- --exact";
             }
           );
+          test-introspection-store-uses-sema-engine = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test store";
+            }
+          );
           fmt = craneLib.cargoFmt { inherit src; };
           clippy = craneLib.cargoClippy (
             commonArgs
