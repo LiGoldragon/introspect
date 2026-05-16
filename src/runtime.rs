@@ -99,15 +99,6 @@ impl IntrospectionRoot {
 
     fn prototype_witness(&mut self, query: PrototypeWitnessQuery) -> IntrospectionReply {
         self.handled_queries = self.handled_queries.saturating_add(1);
-        let _ = (
-            &self.target_directory,
-            &self.query_planner,
-            &self.manager_client,
-            &self.router_client,
-            &self.terminal_client,
-            &self.store,
-            &self.projection,
-        );
         IntrospectionReply::PrototypeWitness(PrototypeWitness {
             engine: query.engine,
             manager_seen: ComponentReadiness::Unknown,
