@@ -3,7 +3,7 @@ use persona_introspect::runtime::{
 };
 use persona_introspect::store::StoreLocation;
 use signal_persona_auth::EngineId;
-use signal_persona_introspect::{DeliveryTraceStatus, IntrospectionReply, PrototypeWitnessQuery};
+use signal_persona_introspect::{IntrospectionReply, PrototypeWitnessQuery};
 
 #[test]
 fn prototype_witness_uses_introspection_root_actor() {
@@ -29,7 +29,9 @@ fn prototype_witness_uses_introspection_root_actor() {
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
             assert_eq!(witness.engine, EngineId::new("prototype"));
-            assert_eq!(witness.delivery_status, DeliveryTraceStatus::Unknown);
+            // Daemon skeleton has not yet collected peer observations;
+            // every field is None per the closed-enum contract.
+            assert_eq!(witness.delivery_status, None);
         }
         other => panic!("expected PrototypeWitness reply, got {other:?}"),
     }

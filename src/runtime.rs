@@ -4,9 +4,8 @@ use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible, SendError};
 use kameo::message::{Context, Message};
 use signal_persona_introspect::{
-    ComponentReadiness, ComponentSnapshot, DeliveryTrace, DeliveryTraceStatus, EngineSnapshot,
-    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, PrototypeWitness,
-    PrototypeWitnessQuery,
+    ComponentSnapshot, DeliveryTrace, EngineSnapshot, IntrospectionReply, IntrospectionRequest,
+    IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
 
 use crate::error::{Error, Result};
@@ -99,12 +98,16 @@ impl IntrospectionRoot {
 
     fn prototype_witness(&mut self, query: PrototypeWitnessQuery) -> IntrospectionReply {
         self.handled_queries = self.handled_queries.saturating_add(1);
+        // Skeleton: the introspect daemon has not yet collected
+        // observations from its peers; every field is None per the
+        // closed-enum contract. Once peer queries land, these become
+        // Some(state) carrying the observed closed-enum variant.
         IntrospectionReply::PrototypeWitness(PrototypeWitness {
             engine: query.engine,
-            manager_seen: ComponentReadiness::Unknown,
-            router_seen: ComponentReadiness::Unknown,
-            terminal_seen: ComponentReadiness::Unknown,
-            delivery_status: DeliveryTraceStatus::Unknown,
+            manager_seen: None,
+            router_seen: None,
+            terminal_seen: None,
+            delivery_status: None,
         })
     }
 
@@ -126,7 +129,7 @@ impl IntrospectionRoot {
                 IntrospectionReply::ComponentSnapshot(ComponentSnapshot {
                     engine: query.engine,
                     target: query.target,
-                    readiness: ComponentReadiness::Unknown,
+                    readiness: None,
                 })
             }
             IntrospectionRequest::DeliveryTrace(query) => {
@@ -134,7 +137,7 @@ impl IntrospectionRoot {
                 IntrospectionReply::DeliveryTrace(DeliveryTrace {
                     engine: query.engine,
                     correlation: query.correlation,
-                    status: DeliveryTraceStatus::Unknown,
+                    status: None,
                 })
             }
             IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query),

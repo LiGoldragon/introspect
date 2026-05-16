@@ -22,10 +22,9 @@ use signal_persona::{
 };
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
-    ComponentReadiness, ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery,
-    DeliveryTraceStatus, EngineSnapshotQuery, IntrospectionFrame,
-    IntrospectionFrameBody as FrameBody, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, PrototypeWitnessQuery,
+    ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery, EngineSnapshotQuery,
+    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
+    IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
 };
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
@@ -109,10 +108,12 @@ fn daemon_serves_prototype_witness_over_signal_socket() {
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
             assert_eq!(witness.engine, EngineId::new("prototype"));
-            assert_eq!(witness.manager_seen, ComponentReadiness::Unknown);
-            assert_eq!(witness.router_seen, ComponentReadiness::Unknown);
-            assert_eq!(witness.terminal_seen, ComponentReadiness::Unknown);
-            assert_eq!(witness.delivery_status, DeliveryTraceStatus::Unknown);
+            // Daemon skeleton has not yet collected peer observations;
+            // every field is None per the closed-enum contract.
+            assert_eq!(witness.manager_seen, None);
+            assert_eq!(witness.router_seen, None);
+            assert_eq!(witness.terminal_seen, None);
+            assert_eq!(witness.delivery_status, None);
         }
         other => panic!("expected prototype witness, got {other:?}"),
     }
@@ -225,7 +226,9 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
     match component_reply {
         IntrospectionReply::ComponentSnapshot(snapshot) => {
             assert_eq!(snapshot.target, IntrospectionTarget::Router);
-            assert_eq!(snapshot.readiness, ComponentReadiness::Unknown);
+            // No peer observation yet → readiness is None on the carrier
+            // record; the inner ComponentReadiness enum stays closed.
+            assert_eq!(snapshot.readiness, None);
         }
         other => panic!("expected component snapshot, got {other:?}"),
     }
@@ -237,7 +240,9 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
     match delivery_reply {
         IntrospectionReply::DeliveryTrace(trace) => {
             assert_eq!(trace.correlation, CorrelationId::new("delivery-aab"));
-            assert_eq!(trace.status, DeliveryTraceStatus::Unknown);
+            // No router trace observed yet → status is None on the
+            // carrier record; the inner DeliveryTraceStatus stays closed.
+            assert_eq!(trace.status, None);
         }
         other => panic!("expected delivery trace, got {other:?}"),
     }

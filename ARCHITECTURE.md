@@ -17,20 +17,34 @@ fact.
 - `introspect` CLI
 - Kameo actors for query planning, target directory, target clients, NOTA
   projection, and `IntrospectionStore` (state-bearing local store).
+- `ManagerClient`, `RouterClient`, `TerminalClient` — Kameo actors
+  that hold each peer daemon's socket path and send typed Signal
+  requests to that peer's observation contract. Each client owns
+  one peer relationship and is the sole path from
+  `IntrospectionRoot` to that peer. Transitional: the clients are
+  scaffolds today and `prototype_witness()` returns hardcoded
+  `ComponentReadiness::Unknown` until the peer observation
+  contracts ship in each `signal-persona-*` crate.
 - Fan-out to component daemons over Signal.
-- Fan-in of typed observations.
+- Fan-in of typed observations as pushed subscription deltas.
 - **`introspect.redb`** — persona-introspect's own typed database,
-  opened through `sema-engine`. Stores: query/reply/error audit
-  trail; subscription registrations (post-Slice 3); delivery trace
-  cache keyed by `DeliveryTraceKey` (post-Slice 3, populated by
-  Subscribe deltas from peer streams).
+  consumed through `sema-engine`. Stores: query/reply/error audit
+  trail (landed); subscription registrations; delivery trace
+  cache keyed by `DeliveryTraceKey`, populated by Subscribe
+  deltas from peer streams (transitional — gated on per-peer
+  observation contracts and sema-engine's Subscribe primitive).
+  Observations are persisted as typed records.
 - NOTA projection for humans, agents, and future UIs.
 
-`DeliveryTraceKey` is an introspection-domain key for joining router, harness,
-and terminal observations that belong to the same message-delivery trace. It is
-not a Signal exchange id, not a request/reply correlation id, and not domain
-payload metadata. Transport ordering and reply matching belong to the Signal
-frame layer; delivery-trace joining belongs to persona-introspect's own store.
+`DeliveryTraceKey` is introspection-domain state — an
+introspection-owned key for joining router, harness, and terminal
+observations that belong to the same message-delivery trace. It is
+not a Signal exchange id, not a request/reply correlation id, and
+not payload correlation metadata. Transport ordering and reply
+matching belong to the Signal frame layer; delivery-trace joining
+belongs to persona-introspect's own store. The key is derived from
+peer observation values (message slot id, router id, terminal id)
+and never leaks into Signal frames.
 
 ## 2. Non-ownership
 
@@ -81,14 +95,16 @@ graph TD
 | Constraint | Witness |
 |---|---|
 | The daemon does not open peer redb files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
-| The daemon opens `introspect.redb` through `sema-engine`. | `tests/store.rs`: root-handled requests persist an observation, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
+| The daemon consumes `introspect.redb` through `sema-engine`. | `tests/store.rs`: root-handled requests persist a typed observation record, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
 | The CLI renders NOTA only at the edge. | CLI and projection tests; component clients return typed Signal replies; no `nota-codec` usage in daemon runtime path. |
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
 | The daemon applies the managed spawn-envelope socket mode. | `checks.*.test-daemon-applies-spawn-envelope-socket-mode`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-persona-introspect`; target observation records come from each peer's `signal-persona-*` contract. |
-| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. All current variants are `Match`; `SubscribeComponent` (Slice 3) is `Subscribe`. |
-| Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan (Slice 3 witness): `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
+| Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. Current read variants are `Match`; `SubscribeComponent` maps to `Subscribe`. |
+| Peer observation is push subscription, not repeated query. Introspect subscribes once to each peer's observation stream; the daemon's cache is updated by pushed deltas; CLI queries the cache. | Source scan: no per-query loops in `ManagerClient`/`RouterClient`/`TerminalClient` that re-ask peers on a timer. Each client opens one Subscribe stream per peer; deltas land in `IntrospectionStore` via `Engine::assert`. CLI handlers read the cache, never fan out to peers. Transitional: witness lands with the per-peer observation contracts. |
+| Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
+| `DeliveryTraceKey` is introspection-domain state. | Source scan: `DeliveryTraceKey` never appears in any `signal-persona-*` request or reply payload, only in `introspect.redb` records and CLI projections. |
 
 ## 5. Status
 
