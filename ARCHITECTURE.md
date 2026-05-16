@@ -105,28 +105,54 @@ graph TD
 | Peer observation is push subscription, not repeated query. Introspect subscribes once to each peer's observation stream; the daemon's cache is updated by pushed deltas; CLI queries the cache. | Source scan: no per-query loops in `ManagerClient`/`RouterClient`/`TerminalClient` that re-ask peers on a timer. Each client opens one Subscribe stream per peer; deltas land in `IntrospectionStore` via `Engine::assert`. CLI handlers read the cache, never fan out to peers. Transitional: witness lands with the per-peer observation contracts. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 | `DeliveryTraceKey` is introspection-domain state. | Source scan: `DeliveryTraceKey` never appears in any `signal-persona-*` request or reply payload, only in `introspect.redb` records and CLI projections. |
+| `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | Integration witness starts router + introspect daemons, runs `introspect prototype_witness`, asserts the router-seen field is `Some(state)` matching the live router. Gated on the router daemon's `RouterFrame` ingress landing. |
+| Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |
+| Subscription deltas push as typed events; consumers do not poll. | Source scan: no timer-based loops in client actors; each client opens one Subscribe stream per peer. |
+| Subscription close is a typed Retract request; the final acknowledgement is a typed reply. | Per-peer client tests assert close → final ack → stream end. |
 
 ## 5. Status
 
-The daemon binds a Unix socket, applies the requested socket mode when supplied,
-and serves `signal-persona-introspect` frames through the Kameo root. The
-three-slice implementation plan:
+The daemon binds a Unix socket, applies the requested socket mode
+when supplied, and serves `signal-persona-introspect` frames
+through the Kameo root. `IntrospectionStore` consumes
+`introspect.redb` via `sema-engine`; the query/reply audit trail
+is persisted as typed records through `Engine::assert`.
 
-- **Slice 1 (in progress):** verb-mapping witness + central envelope
-  extension (ComponentObservations, ListRecordKinds,
-  AwaitingCorrelationCache) + real `EngineSnapshot` /
-  `ComponentSnapshot` / `PrototypeWitness` replies via Signal
-  fan-out + introspect skeleton actor + record family type
-  definitions + local `IntrospectionStore` opened through
-  `sema-engine`. `DeliveryTrace` returns `AwaitingCorrelationCache`
-  until Slice 3.
-- **Slice 2 (gated on sema-engine widening):** terminal +
-  router observation contracts + handlers + introspect clients +
-  CLI + Nix witness. Handler-side storage uses
-  `Engine::register_index` + `QueryPlan::ByIndex` /
-  `QueryPlan::ByKeyRange`.
-- **Slice 3 (gated on sema-engine Subscribe + per-peer
-  commit-then-emit):** `SubscribeComponent` wire variant + forwarded
-  peer subscriptions + cache-backed `DeliveryTrace`. persona-introspect
-  becomes a full sema-engine consumer for subscription registrations +
-  delivery trace cache.
+The remaining work:
+
+- **Per-peer observation contracts.** Each peer's
+  `signal-persona-*` crate carries its own observation request
+  vocabulary (terminal, router, manager). `ManagerClient`,
+  `RouterClient`, `TerminalClient` are scaffolds today: they hold
+  socket paths and supervise cleanly, but `prototype_witness()`
+  returns `None` for the readiness fields until the contracts
+  ship and the daemons accept the corresponding `*Frame` ingress.
+  Destination: each client opens one Subscribe stream against
+  its peer; deltas land in the local store.
+
+  `RouterClient` is the first wired client. The router daemon
+  currently accepts `signal-persona-message` frames; the router
+  observation plane (Kameo `RouterObservationPlane`) answers
+  `RouterRequest::Summary`, `RouterRequest::MessageTrace`, and
+  `RouterRequest::ChannelState` in-process. Wiring the
+  `RouterClient` to send a real `RouterFrame` request requires the
+  router daemon to accept that frame alongside its existing
+  ingress; once that lands, `RouterClient` opens a Match request
+  for `RouterSummaryQuery`, parses the typed `RouterSummary`
+  reply, and `prototype_witness()` composes the result into
+  `PrototypeWitness.router_seen` as `Some(ComponentReadiness::Ready)`
+  when the engine identifier matches.
+
+  Push subscription wiring follows the canonical lifecycle named
+  in `~/primary/skills/subscription-lifecycle.md`: typed Subscribe
+  request, typed snapshot reply, typed delta events, typed Retract
+  close, final typed acknowledgement, end. The introspect store
+  consumes the deltas through `Engine::assert` so the audit trail
+  remains durable.
+- **Subscription primitive in sema-engine.** `Engine::subscribe`
+  is the only path that registers introspect-side subscriptions
+  to peer streams. Gated on sema-engine's per-peer
+  commit-then-emit semantics. Destination: `SubscribeComponent`
+  wire variant + forwarded peer subscriptions + cache-backed
+  `DeliveryTrace`. Until then, `DeliveryTrace` returns
+  `AwaitingCorrelationCache`.
