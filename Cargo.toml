@@ -23,6 +23,7 @@ path = "src/bin/persona_introspect_daemon.rs"
 [dependencies]
 kameo                     = { version = "0.20", default-features = false, features = ["macros"] }
 nota-codec                = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+nota-config               = { git = "https://github.com/LiGoldragon/nota-config.git", branch = "main" }
 rkyv                      = "0.8"
 sema                      = { git = "https://github.com/LiGoldragon/sema.git" }
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git" }

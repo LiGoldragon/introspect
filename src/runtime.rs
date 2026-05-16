@@ -28,37 +28,6 @@ impl TargetSocketDirectory {
             terminal_socket: None,
         }
     }
-
-    pub fn from_environment() -> Self {
-        let mut directory = Self {
-            manager_socket: std::env::var_os("PERSONA_MANAGER_SOCKET_PATH").map(PathBuf::from),
-            router_socket: None,
-            terminal_socket: None,
-        };
-        let count = std::env::var("PERSONA_PEER_SOCKET_COUNT")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(0);
-        for index in 0..count {
-            let Some(component) = std::env::var_os(format!("PERSONA_PEER_{index}_COMPONENT"))
-            else {
-                continue;
-            };
-            let Some(socket) = std::env::var_os(format!("PERSONA_PEER_{index}_SOCKET_PATH")) else {
-                continue;
-            };
-            match component.to_string_lossy().as_ref() {
-                "router" | "persona-router" => {
-                    directory.router_socket = Some(PathBuf::from(socket))
-                }
-                "terminal" | "persona-terminal" => {
-                    directory.terminal_socket = Some(PathBuf::from(socket))
-                }
-                _ => {}
-            }
-        }
-        directory
-    }
 }
 
 #[derive(Debug)]

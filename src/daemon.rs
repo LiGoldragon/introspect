@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -11,8 +10,8 @@ use signal_core::{
     SignalVerb, SubReply,
 };
 use signal_persona_introspect::{
-    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
-    IntrospectionRequest,
+    IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
+    IntrospectionReply, IntrospectionRequest,
 };
 
 use crate::error::{Error, Result};
@@ -20,55 +19,9 @@ use crate::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use crate::store::StoreLocation;
-use crate::supervision::{SupervisionListener, SupervisionProfile};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IntrospectionDaemonCommandLine {
-    arguments: Vec<OsString>,
-}
-
-impl IntrospectionDaemonCommandLine {
-    pub fn from_env() -> Self {
-        Self::from_arguments(std::env::args_os().skip(1))
-    }
-
-    pub fn from_arguments<I, S>(arguments: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<OsString>,
-    {
-        Self {
-            arguments: arguments.into_iter().map(Into::into).collect(),
-        }
-    }
-
-    pub fn daemon(&self) -> Result<IntrospectionDaemon> {
-        self.reject_extra_arguments()?;
-        let socket = self.socket()?;
-        Ok(IntrospectionDaemon::from_introspection_socket(socket)
-            .with_targets(TargetSocketDirectory::from_environment()))
-    }
-
-    pub fn run(&self) -> Result<()> {
-        self.daemon()?.run()
-    }
-
-    fn socket(&self) -> Result<IntrospectionSocket> {
-        if let Some(argument) = self.arguments.first() {
-            return Ok(IntrospectionSocket::from_path(argument));
-        }
-        IntrospectionSocket::from_environment().ok_or(Error::IntrospectionSocketMissing)
-    }
-
-    fn reject_extra_arguments(&self) -> Result<()> {
-        if let Some(argument) = self.arguments.get(1) {
-            return Err(Error::UnexpectedArgument {
-                got: argument.to_string_lossy().to_string(),
-            });
-        }
-        Ok(())
-    }
-}
+use crate::supervision::{
+    SupervisionListener, SupervisionProfile, SupervisionSocketMode,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrospectionSocket {
@@ -80,6 +33,11 @@ impl IntrospectionSocket {
         Self { path: path.into() }
     }
 
+    /// CLI convenience — the `introspect` CLI may discover the daemon's
+    /// socket via `PERSONA_INTROSPECT_SOCKET` / `PERSONA_SOCKET_PATH`
+    /// as a last-resort connection target. **Not for the daemon's
+    /// production launch path** — the daemon binds the socket path
+    /// supplied by `IntrospectDaemonConfiguration.introspect_socket_path`.
     pub fn from_environment() -> Option<Self> {
         std::env::var_os("PERSONA_INTROSPECT_SOCKET")
             .or_else(|| std::env::var_os("PERSONA_SOCKET_PATH"))
@@ -95,22 +53,15 @@ impl IntrospectionSocket {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketMode(u32);
 
 impl SocketMode {
-    pub fn from_octal(value: u32) -> Self {
+    pub const fn from_octal(value: u32) -> Self {
         Self(value)
     }
 
-    pub fn from_environment() -> Option<Self> {
-        std::env::var("PERSONA_SOCKET_MODE")
-            .ok()
-            .and_then(|value| u32::from_str_radix(value.as_str(), 8).ok())
-            .map(Self::from_octal)
-    }
-
-    pub fn as_octal(&self) -> u32 {
+    pub const fn as_octal(self) -> u32 {
         self.0
     }
 }
@@ -121,15 +72,52 @@ pub struct IntrospectionDaemon {
     targets: TargetSocketDirectory,
     store: StoreLocation,
     socket_mode: Option<SocketMode>,
+    supervision: Option<SupervisionListener>,
 }
 
 impl IntrospectionDaemon {
+    /// Canonical constructor — every production launch reads typed
+    /// `IntrospectDaemonConfiguration` from argv via `nota-config` and
+    /// hands the record here.
+    pub fn from_configuration(configuration: IntrospectDaemonConfiguration) -> Self {
+        let targets = TargetSocketDirectory {
+            manager_socket: Some(PathBuf::from(
+                configuration.manager_socket_path.as_str(),
+            )),
+            router_socket: Some(PathBuf::from(configuration.router_socket_path.as_str())),
+            terminal_socket: Some(PathBuf::from(
+                configuration.terminal_socket_path.as_str(),
+            )),
+        };
+        let supervision = SupervisionListener::new(
+            SupervisionProfile::introspect(),
+            PathBuf::from(configuration.supervision_socket_path.as_str()),
+            SupervisionSocketMode::from_octal(
+                configuration.supervision_socket_mode.into_u32(),
+            ),
+        );
+        Self {
+            socket: IntrospectionSocket::from_path(
+                configuration.introspect_socket_path.as_str(),
+            ),
+            targets,
+            store: StoreLocation::new(configuration.store_path.as_str()),
+            socket_mode: Some(SocketMode::from_octal(
+                configuration.introspect_socket_mode.into_u32(),
+            )),
+            supervision: Some(supervision),
+        }
+    }
+
+    /// In-process constructor for tests that build the daemon directly
+    /// without going through a configuration file.
     pub fn from_introspection_socket(socket: IntrospectionSocket) -> Self {
         Self {
             socket,
             targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::from_environment(),
-            socket_mode: SocketMode::from_environment(),
+            store: StoreLocation::new("/tmp/persona-introspect.redb"),
+            socket_mode: None,
+            supervision: None,
         }
     }
 
@@ -157,10 +145,9 @@ impl IntrospectionDaemon {
     }
 
     pub fn run(self) -> Result<()> {
+        let supervision = self.supervision.clone();
         let bound = self.bind()?;
-        let _supervision = SupervisionListener::from_environment(SupervisionProfile::introspect())
-            .map(SupervisionListener::spawn)
-            .transpose()?;
+        let _supervision = supervision.map(SupervisionListener::spawn).transpose()?;
         eprintln!(
             "persona-introspect-daemon socket={}",
             bound.socket.display()

@@ -25,4 +25,6 @@ pub enum Error {
     Nota(#[from] nota_codec::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("nota-config: {0}")]
+    NotaConfig(#[from] nota_config::Error),
 }

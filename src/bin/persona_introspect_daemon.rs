@@ -1,5 +1,10 @@
-use persona_introspect::daemon::IntrospectionDaemonCommandLine;
+use nota_config::ConfigurationSource;
+use persona_introspect::Result;
+use persona_introspect::daemon::IntrospectionDaemon;
+use signal_persona_introspect::IntrospectDaemonConfiguration;
 
-fn main() -> persona_introspect::Result<()> {
-    IntrospectionDaemonCommandLine::from_env().run()
+fn main() -> Result<()> {
+    let configuration: IntrospectDaemonConfiguration =
+        ConfigurationSource::from_argv()?.decode()?;
+    IntrospectionDaemon::from_configuration(configuration).run()
 }

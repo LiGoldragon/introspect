@@ -26,6 +26,12 @@ impl StoreLocation {
         Self { path: path.into() }
     }
 
+    /// CLI convenience — the `introspect` CLI (which may run an
+    /// in-process root for local-only queries) may discover the
+    /// introspection store via `PERSONA_INTROSPECT_STORE` or
+    /// `PERSONA_STATE_PATH` as a last-resort fallback. **Not for the
+    /// daemon's production launch path** — the daemon opens the store
+    /// path supplied by `IntrospectDaemonConfiguration.store_path`.
     pub fn from_environment() -> Self {
         match std::env::var_os("PERSONA_INTROSPECT_STORE") {
             Some(path) => Self::new(path),

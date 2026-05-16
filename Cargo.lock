@@ -339,6 +339,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nota-config"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/nota-config.git?branch=main#d557fbf1dea78e417aa26a3b2858e810a6b6f292"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "nota-derive"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/nota-derive.git?branch=main#e24e50afe110810db50a7eb8f9a7963c6761c0af"
@@ -360,6 +370,7 @@ version = "0.1.0"
 dependencies = [
  "kameo",
  "nota-codec",
+ "nota-config",
  "rkyv",
  "sema",
  "sema-engine",
@@ -581,7 +592,7 @@ dependencies = [
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#25212c0d2a3f6403e8131d8db4b810e14fdd826b"
+source = "git+https://github.com/LiGoldragon/signal-core.git#f17efc1c9c8c2d3bf755ef3a285a8618886c49fa"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -592,7 +603,7 @@ dependencies = [
 [[package]]
 name = "signal-core-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#25212c0d2a3f6403e8131d8db4b810e14fdd826b"
+source = "git+https://github.com/LiGoldragon/signal-core.git#f17efc1c9c8c2d3bf755ef3a285a8618886c49fa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -613,7 +624,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-auth"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-auth.git#837aae09754b606212bbac705361ad0d56bb3ab4"
+source = "git+https://github.com/LiGoldragon/signal-persona-auth.git#a50829a214292c3a6a1b4fe34bd2a0b23d448dad"
 dependencies = [
  "nota-codec",
  "rkyv",
@@ -623,11 +634,13 @@ dependencies = [
 [[package]]
 name = "signal-persona-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-introspect.git#e59df2b38144320c5cdb6cd8346b2ceaeeb2c1f3"
+source = "git+https://github.com/LiGoldragon/signal-persona-introspect.git#66e7e09804bff620e6b4780ac2a2f003de6eafbd"
 dependencies = [
  "nota-codec",
+ "nota-config",
  "rkyv",
  "signal-core",
+ "signal-persona",
  "signal-persona-auth",
  "thiserror",
 ]

@@ -23,9 +23,11 @@ use signal_persona::{
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
     ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery, EngineSnapshotQuery,
-    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
-    IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
+    IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
+    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
 };
+use signal_persona_auth::{OwnerIdentity, UnixUserId};
+use nota_codec::{Encoder, NotaEncode};
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let directory = tempfile::tempdir().expect("tempdir");
@@ -121,18 +123,32 @@ fn daemon_serves_prototype_witness_over_signal_socket() {
 
 #[test]
 fn daemon_answers_component_supervision_relation() {
+    use signal_persona::{SocketMode as WireSocketMode, WirePath};
     let directory = tempfile::tempdir().expect("tempdir");
     let socket = directory.path().join("introspect.sock");
     let supervision_socket = directory.path().join("supervision.sock");
+    let store_path = directory.path().join("introspect.redb");
+    let configuration_path = directory.path().join("introspect-daemon.nota");
+
+    let configuration = IntrospectDaemonConfiguration {
+        introspect_socket_path: WirePath::new(socket.display().to_string()),
+        introspect_socket_mode: WireSocketMode::new(0o600),
+        supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
+        supervision_socket_mode: WireSocketMode::new(0o600),
+        store_path: WirePath::new(store_path.display().to_string()),
+        manager_socket_path: WirePath::new(directory.path().join("persona.sock").display().to_string()),
+        router_socket_path: WirePath::new(directory.path().join("router.sock").display().to_string()),
+        terminal_socket_path: WirePath::new(directory.path().join("terminal.sock").display().to_string()),
+        owner_identity: OwnerIdentity::UnixUser(UnixUserId::new(1000)),
+    };
+    let mut encoder = Encoder::new();
+    configuration.encode(&mut encoder).expect("encode introspect config");
+    let mut text = encoder.into_string();
+    text.push('\n');
+    std::fs::write(&configuration_path, text).expect("write config");
+
     let mut child = Command::new(env!("CARGO_BIN_EXE_persona-introspect-daemon"))
-        .arg(&socket)
-        .env("PERSONA_SOCKET_MODE", "600")
-        .env(
-            "PERSONA_STATE_PATH",
-            directory.path().join("introspect.redb"),
-        )
-        .env("PERSONA_SUPERVISION_SOCKET_PATH", &supervision_socket)
-        .env("PERSONA_SUPERVISION_SOCKET_MODE", "600")
+        .arg(&configuration_path)
         .spawn()
         .expect("persona-introspect-daemon starts");
 
