@@ -12,6 +12,8 @@ Before changing code in this repo, read:
 - `~/primary/skills/rust-discipline.md`
 - `~/primary/skills/architectural-truth-tests.md`
 - `~/primary/skills/nix-discipline.md`
+- `~/primary/skills/subscription-lifecycle.md`
+- `~/primary/skills/push-not-pull.md`
 - this repo's `ARCHITECTURE.md`
 - `signal-persona-introspect/ARCHITECTURE.md`
 
@@ -31,3 +33,24 @@ Before changing code in this repo, read:
 - Component observation record definitions.
 
 Live introspection asks component daemons. It never opens their databases.
+
+## Peer-query and subscription discipline
+
+`ManagerClient`, `RouterClient`, and `TerminalClient` each own
+exactly one peer relationship. Each client either opens a typed
+Subscribe stream against its peer (push subscription) or sends a
+typed Match request (one-shot query). It never polls; it never
+re-asks on a timer.
+
+Subscription open returns a typed snapshot reply carrying the
+per-stream token and a sequence pointer; subsequent deltas push
+as typed events; close is a typed Retract request; the final ack
+is a typed reply event. The full lifecycle is named in
+`~/primary/skills/subscription-lifecycle.md`.
+
+When a peer client encodes a Match request (e.g. `RouterRequest::Summary`),
+it sends one typed Signal frame, parses the typed reply, and
+composes the result into the carrier record (`PrototypeWitness`,
+`ComponentSnapshot`, etc.) — using `Some(state)` when the peer
+answered, `None` when the peer socket is not configured or the
+peer daemon has not yet shipped that contract operation.
