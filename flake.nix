@@ -57,6 +57,13 @@
               cargoTestExtraArgs = "--test daemon";
             }
           );
+          test-router-client-live-summary = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_runtime_truth prototype_witness_queries_live_router_summary_socket -- --exact";
+            }
+          );
           test-daemon-applies-spawn-envelope-socket-mode = craneLib.cargoTest (
             commonArgs
             // {

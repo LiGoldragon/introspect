@@ -10,6 +10,12 @@ pub enum Error {
     IntrospectionSocketMissing,
     #[error("unexpected signal frame: {got}")]
     UnexpectedSignalFrame { got: String },
+    #[error("router observation request was rejected: {reason}")]
+    RouterObservationRejected {
+        reason: signal_core::RequestRejectionReason,
+    },
+    #[error("unexpected router observation reply: {got}")]
+    UnexpectedRouterObservationReply { got: String },
     #[error("actor operation failed: {operation}: {detail}")]
     Actor {
         operation: &'static str,

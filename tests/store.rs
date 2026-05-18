@@ -191,22 +191,35 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
 }
 
 #[test]
-fn introspect_daemon_does_not_depend_on_peer_component_contract_crates() {
+fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
     let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let manifest = std::fs::read_to_string(&manifest_path).expect("manifest reads");
 
+    assert!(
+        manifest.contains("signal-persona-router"),
+        "RouterClient must speak the router observation contract through \
+         signal-persona-router rather than inventing a local copy"
+    );
+
     for forbidden in [
-        "signal-persona-router",
-        "signal-persona-terminal",
-        "signal-persona-message",
-        "signal-persona-mind",
-        "signal-persona-harness",
-        "signal-persona-system",
+        "persona-router",
+        "persona-terminal",
+        "persona-message",
+        "persona-mind",
+        "persona-harness",
+        "persona-system",
     ] {
+        let direct_dependency_present = manifest
+            .lines()
+            .filter_map(|line| {
+                line.split_once('=')
+                    .map(|(dependency, _)| dependency.trim())
+            })
+            .any(|dependency| dependency == forbidden);
         assert!(
-            !manifest.contains(forbidden),
-            "persona-introspect must not depend on peer contract crate: {forbidden} \
-             (component observations are component-owned; introspect wraps, never redefines)"
+            !direct_dependency_present,
+            "persona-introspect must not depend on peer runtime crate: {forbidden} \
+             (live observations cross daemon sockets; introspect does not call peer internals)"
         );
     }
 }

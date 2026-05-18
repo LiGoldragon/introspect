@@ -13,8 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use persona_introspect::runtime::{
-    IntrospectionRoot, ManagerClient, NotaProjection, QueryPlanner, RouterClient,
-    TargetDirectory, TerminalClient,
+    IntrospectionRoot, ManagerClient, NotaProjection, QueryPlanner, RouterClient, TargetDirectory,
+    TerminalClient,
 };
 use persona_introspect::store::IntrospectionStore;
 use persona_introspect::supervision::SupervisionPhase;

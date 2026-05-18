@@ -58,8 +58,8 @@ impl NotaDecode for Input {
         let head = decoder.peek_record_head()?;
         match head.as_str() {
             "PrototypeWitness" => Ok(Self::PrototypeWitness(PrototypeWitness::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "Input",
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "Input",
                 got: other.to_string(),
             }),
         }

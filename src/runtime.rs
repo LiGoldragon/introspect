@@ -1,11 +1,22 @@
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible, SendError};
 use kameo::message::{Context, Message};
+use signal_core::{
+    AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
+    SessionEpoch, SignalVerb, SubReply,
+};
+use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
-    ComponentSnapshot, DeliveryTrace, EngineSnapshot, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
+    ComponentReadiness, ComponentSnapshot, DeliveryTrace, EngineSnapshot, IntrospectionReply,
+    IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
+};
+use signal_persona_router::{
+    RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummaryQuery,
 };
 
 use crate::error::{Error, Result};
@@ -65,51 +76,70 @@ impl IntrospectionRoot {
         }))
     }
 
-    fn prototype_witness(&mut self, query: PrototypeWitnessQuery) -> IntrospectionReply {
+    async fn prototype_witness(
+        &mut self,
+        query: PrototypeWitnessQuery,
+    ) -> Result<IntrospectionReply> {
         self.handled_queries = self.handled_queries.saturating_add(1);
-        // Skeleton: the introspect daemon has not yet collected
-        // observations from its peers; every field is None per the
-        // closed-enum contract. Once peer queries land, these become
-        // Some(state) carrying the observed closed-enum variant.
-        IntrospectionReply::PrototypeWitness(PrototypeWitness {
+        let router_seen = match self
+            .router_client
+            .ask(QueryRouterSummary {
+                engine: query.engine.clone(),
+            })
+            .await
+        {
+            Ok(readiness) => readiness,
+            Err(SendError::HandlerError(error)) => return Err(error),
+            Err(error) => {
+                return Err(Error::Actor {
+                    operation: "query router summary",
+                    detail: format!("{error:?}"),
+                });
+            }
+        };
+
+        Ok(IntrospectionReply::PrototypeWitness(PrototypeWitness {
             engine: query.engine,
             manager_seen: None,
-            router_seen: None,
+            router_seen,
             terminal_seen: None,
             delivery_status: None,
-        })
+        }))
     }
 
-    fn handle_request(&mut self, request: IntrospectionRequest) -> IntrospectionReply {
+    async fn handle_request(
+        &mut self,
+        request: IntrospectionRequest,
+    ) -> Result<IntrospectionReply> {
         match request {
             IntrospectionRequest::EngineSnapshot(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                IntrospectionReply::EngineSnapshot(EngineSnapshot {
+                Ok(IntrospectionReply::EngineSnapshot(EngineSnapshot {
                     engine: query.engine,
                     observed_components: vec![
                         IntrospectionTarget::EngineManager,
                         IntrospectionTarget::Router,
                         IntrospectionTarget::Terminal,
                     ],
-                })
+                }))
             }
             IntrospectionRequest::ComponentSnapshot(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                IntrospectionReply::ComponentSnapshot(ComponentSnapshot {
+                Ok(IntrospectionReply::ComponentSnapshot(ComponentSnapshot {
                     engine: query.engine,
                     target: query.target,
                     readiness: None,
-                })
+                }))
             }
             IntrospectionRequest::DeliveryTrace(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                IntrospectionReply::DeliveryTrace(DeliveryTrace {
+                Ok(IntrospectionReply::DeliveryTrace(DeliveryTrace {
                     engine: query.engine,
                     correlation: query.correlation,
                     status: None,
-                })
+                }))
             }
-            IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query),
+            IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query).await,
         }
     }
 
@@ -191,7 +221,7 @@ impl Message<ExplainPrototypeWitness> for IntrospectionRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let request = IntrospectionRequest::PrototypeWitness(message.query);
-        let reply = self.handle_request(request.clone());
+        let reply = self.handle_request(request.clone()).await?;
         self.record_observation(request, reply.clone()).await?;
         Ok(reply)
     }
@@ -210,7 +240,7 @@ impl Message<HandleIntrospectionRequest> for IntrospectionRoot {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let request = message.request;
-        let reply = self.handle_request(request.clone());
+        let reply = self.handle_request(request.clone()).await?;
         self.record_observation(request, reply.clone()).await?;
         Ok(reply)
     }
@@ -316,6 +346,26 @@ impl RouterClient {
     pub fn socket(&self) -> Option<&Path> {
         self.socket.as_deref()
     }
+
+    fn query_summary_over_socket(
+        socket: PathBuf,
+        engine: EngineId,
+    ) -> Result<Option<ComponentReadiness>> {
+        let mut stream = UnixStream::connect(socket)?;
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+        let request = RouterRequest::Summary(RouterSummaryQuery {
+            engine: engine.clone(),
+        });
+        let frame = RouterFrame::new(RouterFrameBody::Request {
+            exchange: router_exchange(),
+            request: request.into_request(),
+        });
+        stream.write_all(&frame.encode_length_prefixed()?)?;
+        stream.flush()?;
+        let reply = RouterClientFrameCodec::default().read_frame(&mut stream)?;
+        router_summary_readiness(engine, reply)
+    }
 }
 
 impl Actor for RouterClient {
@@ -327,6 +377,112 @@ impl Actor for RouterClient {
         _actor_ref: ActorRef<Self>,
     ) -> std::result::Result<Self, Self::Error> {
         Ok(state)
+    }
+}
+
+pub struct QueryRouterSummary {
+    pub engine: EngineId,
+}
+
+impl Message<QueryRouterSummary> for RouterClient {
+    type Reply = Result<Option<ComponentReadiness>>;
+
+    async fn handle(
+        &mut self,
+        message: QueryRouterSummary,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let Some(socket) = self.socket.clone() else {
+            return Ok(None);
+        };
+        tokio::task::spawn_blocking(move || Self::query_summary_over_socket(socket, message.engine))
+            .await
+            .map_err(|error| Error::Actor {
+                operation: "join router summary query",
+                detail: error.to_string(),
+            })?
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RouterClientFrameCodec {
+    maximum_frame_bytes: usize,
+}
+
+impl RouterClientFrameCodec {
+    const fn new(maximum_frame_bytes: usize) -> Self {
+        Self {
+            maximum_frame_bytes,
+        }
+    }
+
+    fn read_frame(&self, reader: &mut impl Read) -> Result<RouterFrame> {
+        let mut prefix = [0_u8; 4];
+        reader.read_exact(&mut prefix)?;
+        let length = u32::from_be_bytes(prefix) as usize;
+        if length > self.maximum_frame_bytes {
+            return Err(Error::UnexpectedSignalFrame {
+                got: format!("router frame exceeds {} bytes", self.maximum_frame_bytes),
+            });
+        }
+        let mut bytes = Vec::with_capacity(4 + length);
+        bytes.extend_from_slice(&prefix);
+        bytes.resize(4 + length, 0);
+        reader.read_exact(&mut bytes[4..])?;
+        Ok(RouterFrame::decode_length_prefixed(&bytes)?)
+    }
+}
+
+impl Default for RouterClientFrameCodec {
+    fn default() -> Self {
+        Self::new(1024 * 1024)
+    }
+}
+
+fn router_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(1),
+        ExchangeLane::Connector,
+        LaneSequence::first(),
+    )
+}
+
+fn router_summary_readiness(
+    expected_engine: EngineId,
+    frame: RouterFrame,
+) -> Result<Option<ComponentReadiness>> {
+    match frame.into_body() {
+        RouterFrameBody::Reply { reply, .. } => match reply {
+            Reply::Accepted {
+                outcome: AcceptedOutcome::Completed,
+                per_operation,
+            } => match per_operation.into_head() {
+                SubReply::Ok {
+                    verb: SignalVerb::Match,
+                    payload: RouterReply::Summary(summary),
+                } => {
+                    if summary.engine == expected_engine {
+                        Ok(Some(ComponentReadiness::Ready))
+                    } else {
+                        Ok(Some(ComponentReadiness::NotReady))
+                    }
+                }
+                SubReply::Ok {
+                    payload: RouterReply::Unimplemented(_),
+                    ..
+                } => Ok(None),
+                other => Err(Error::UnexpectedRouterObservationReply {
+                    got: format!("{other:?}"),
+                }),
+            },
+            Reply::Rejected { reason } => Err(Error::RouterObservationRejected { reason }),
+            other => Err(Error::UnexpectedRouterObservationReply {
+                got: format!("{other:?}"),
+            }),
+        },
+        other => Err(Error::UnexpectedRouterObservationReply {
+            got: format!("{other:?}"),
+        }),
     }
 }
 

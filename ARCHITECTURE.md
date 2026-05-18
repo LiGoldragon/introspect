@@ -21,10 +21,13 @@ fact.
   that hold each peer daemon's socket path and send typed Signal
   requests to that peer's observation contract. Each client owns
   one peer relationship and is the sole path from
-  `IntrospectionRoot` to that peer. Transitional: the clients are
-  scaffolds today and `prototype_witness()` returns hardcoded
-  `ComponentReadiness::Unknown` until the peer observation
-  contracts ship in each `signal-persona-*` crate.
+  `IntrospectionRoot` to that peer. `RouterClient` is the first
+  live client: when a router socket is configured,
+  `prototype_witness()` sends `RouterRequest::Summary` over a
+  length-prefixed `signal-persona-router` frame and composes the
+  typed reply into `PrototypeWitness.router_seen`. `ManagerClient`
+  and `TerminalClient` remain scaffolds until their peer observation
+  contracts and daemon ingress paths land.
 - Fan-out to component daemons over Signal.
 - Fan-in of typed observations as pushed subscription deltas.
 - **`introspect.redb`** — persona-introspect's own typed database,
@@ -102,10 +105,10 @@ graph TD
 | The daemon applies the managed spawn-envelope socket mode. | `checks.*.test-daemon-applies-spawn-envelope-socket-mode`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-persona-introspect`; target observation records come from each peer's `signal-persona-*` contract. |
 | Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. Current read variants are `Match`; `SubscribeComponent` maps to `Subscribe`. |
-| Peer observation is push subscription, not repeated query. Introspect subscribes once to each peer's observation stream; the daemon's cache is updated by pushed deltas; CLI queries the cache. | Source scan: no per-query loops in `ManagerClient`/`RouterClient`/`TerminalClient` that re-ask peers on a timer. Each client opens one Subscribe stream per peer; deltas land in `IntrospectionStore` via `Engine::assert`. CLI handlers read the cache, never fan out to peers. Transitional: witness lands with the per-peer observation contracts. |
+| Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot `Match` query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` Match frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 | `DeliveryTraceKey` is introspection-domain state. | Source scan: `DeliveryTraceKey` never appears in any `signal-persona-*` request or reply payload, only in `introspect.redb` records and CLI projections. |
-| `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | Integration witness starts router + introspect daemons, runs `introspect prototype_witness`, asserts the router-seen field is `Some(state)` matching the live router. Gated on the router daemon's `RouterFrame` ingress landing. |
+| `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
 | Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |
 | Subscription deltas push as typed events; consumers do not poll. | Source scan: no timer-based loops in client actors; each client opens one Subscribe stream per peer. |
 | Subscription close is a typed Retract request; the final acknowledgement is a typed reply. | Per-peer client tests assert close → final ack → stream end. |
@@ -123,22 +126,21 @@ The remaining work:
 - **Per-peer observation contracts.** Each peer's
   `signal-persona-*` crate carries its own observation request
   vocabulary (terminal, router, manager). `ManagerClient`,
-  `RouterClient`, `TerminalClient` are scaffolds today: they hold
-  socket paths and supervise cleanly, but `prototype_witness()`
-  returns `None` for the readiness fields until the contracts
-  ship and the daemons accept the corresponding `*Frame` ingress.
-  Destination: each client opens one Subscribe stream against
-  its peer; deltas land in the local store.
+  and `TerminalClient` are scaffolds today: they hold socket paths
+  and supervise cleanly, but `prototype_witness()` returns `None`
+  for their readiness fields until the contracts ship and the
+  daemons accept the corresponding `*Frame` ingress. Destination:
+  each client opens one Subscribe stream against its peer; deltas
+  land in the local store.
 
   `RouterClient` is the first wired client. The router daemon
-  currently accepts `signal-persona-message` frames; the router
-  observation plane (Kameo `RouterObservationPlane`) answers
-  `RouterRequest::Summary`, `RouterRequest::MessageTrace`, and
-  `RouterRequest::ChannelState` in-process. Wiring the
-  `RouterClient` to send a real `RouterFrame` request requires the
-  router daemon to accept that frame alongside its existing
-  ingress; once that lands, `RouterClient` opens a Match request
-  for `RouterSummaryQuery`, parses the typed `RouterSummary`
+  accepts `signal-persona-message` frames for message ingress and
+  `signal-persona-router::RouterFrame` Match frames for read-side
+  observation. The router observation plane (Kameo
+  `RouterObservationPlane`) answers `RouterRequest::Summary`,
+  `RouterRequest::MessageTrace`, and `RouterRequest::ChannelState`.
+  `RouterClient` sends a real `RouterFrame` Match request for
+  `RouterSummaryQuery`, parses the typed `RouterSummary`
   reply, and `prototype_witness()` composes the result into
   `PrototypeWitness.router_seen` as `Some(ComponentReadiness::Ready)`
   when the engine identifier matches.

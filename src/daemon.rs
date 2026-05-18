@@ -19,9 +19,7 @@ use crate::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use crate::store::StoreLocation;
-use crate::supervision::{
-    SupervisionListener, SupervisionProfile, SupervisionSocketMode,
-};
+use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrospectionSocket {
@@ -81,25 +79,17 @@ impl IntrospectionDaemon {
     /// hands the record here.
     pub fn from_configuration(configuration: IntrospectDaemonConfiguration) -> Self {
         let targets = TargetSocketDirectory {
-            manager_socket: Some(PathBuf::from(
-                configuration.manager_socket_path.as_str(),
-            )),
+            manager_socket: Some(PathBuf::from(configuration.manager_socket_path.as_str())),
             router_socket: Some(PathBuf::from(configuration.router_socket_path.as_str())),
-            terminal_socket: Some(PathBuf::from(
-                configuration.terminal_socket_path.as_str(),
-            )),
+            terminal_socket: Some(PathBuf::from(configuration.terminal_socket_path.as_str())),
         };
         let supervision = SupervisionListener::new(
             SupervisionProfile::introspect(),
             PathBuf::from(configuration.supervision_socket_path.as_str()),
-            SupervisionSocketMode::from_octal(
-                configuration.supervision_socket_mode.into_u32(),
-            ),
+            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode.into_u32()),
         );
         Self {
-            socket: IntrospectionSocket::from_path(
-                configuration.introspect_socket_path.as_str(),
-            ),
+            socket: IntrospectionSocket::from_path(configuration.introspect_socket_path.as_str()),
             targets,
             store: StoreLocation::new(configuration.store_path.as_str()),
             socket_mode: Some(SocketMode::from_octal(

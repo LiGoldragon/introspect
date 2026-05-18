@@ -6,6 +6,7 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nota_codec::{Encoder, NotaEncode};
 use persona_introspect::{
     SupervisionFrameCodec,
     daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
@@ -15,19 +16,24 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
     RequestRejectionReason, SessionEpoch, SignalVerb,
 };
+use signal_frame::{
+    ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
+    LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
+};
+use signal_persona::engine_management::{
+    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_persona::{
-    ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind, ComponentName,
-    ComponentReadinessQuery, SupervisionFrame, SupervisionFrameBody, SupervisionProtocolVersion,
-    SupervisionReply, SupervisionRequest,
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
 use signal_persona_auth::EngineId;
+use signal_persona_auth::{OwnerIdentity, UnixUserId};
 use signal_persona_introspect::{
     ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery, EngineSnapshotQuery,
     IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
 };
-use signal_persona_auth::{OwnerIdentity, UnixUserId};
-use nota_codec::{Encoder, NotaEncode};
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let directory = tempfile::tempdir().expect("tempdir");
@@ -136,13 +142,21 @@ fn daemon_answers_component_supervision_relation() {
         supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
         supervision_socket_mode: WireSocketMode::new(0o600),
         store_path: WirePath::new(store_path.display().to_string()),
-        manager_socket_path: WirePath::new(directory.path().join("persona.sock").display().to_string()),
-        router_socket_path: WirePath::new(directory.path().join("router.sock").display().to_string()),
-        terminal_socket_path: WirePath::new(directory.path().join("terminal.sock").display().to_string()),
+        manager_socket_path: WirePath::new(
+            directory.path().join("persona.sock").display().to_string(),
+        ),
+        router_socket_path: WirePath::new(
+            directory.path().join("router.sock").display().to_string(),
+        ),
+        terminal_socket_path: WirePath::new(
+            directory.path().join("terminal.sock").display().to_string(),
+        ),
         owner_identity: OwnerIdentity::UnixUser(UnixUserId::new(1000)),
     };
     let mut encoder = Encoder::new();
-    configuration.encode(&mut encoder).expect("encode introspect config");
+    configuration
+        .encode(&mut encoder)
+        .expect("encode introspect config");
     let mut text = encoder.into_string();
     text.push('\n');
     std::fs::write(&configuration_path, text).expect("write config");
@@ -165,39 +179,39 @@ fn daemon_answers_component_supervision_relation() {
 
     write_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentHello(ComponentHello {
+        SupervisionRequest::Announce(Presence {
             expected_component: ComponentName::new("persona-introspect"),
             expected_kind: ComponentKind::Introspect,
-            supervision_protocol_version: SupervisionProtocolVersion::new(1),
+            engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
         }),
     );
     assert!(matches!(
         codec.read_reply(&mut stream).expect("identity reply"),
-        SupervisionReply::ComponentIdentity(identity)
+        SupervisionReply::Identified(identity)
             if identity.name.as_str() == "persona-introspect"
                 && identity.kind == ComponentKind::Introspect
     ));
 
     write_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery {
-            component: ComponentName::new("persona-introspect"),
-        }),
+        SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
+            "persona-introspect",
+        ))),
     );
     assert!(matches!(
         codec.read_reply(&mut stream).expect("readiness reply"),
-        SupervisionReply::ComponentReady(_)
+        SupervisionReply::Ready(_)
     ));
 
     write_supervision_request(
         &mut stream,
-        SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery {
-            component: ComponentName::new("persona-introspect"),
-        }),
+        SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
+            "persona-introspect",
+        ))),
     );
     assert!(matches!(
         codec.read_reply(&mut stream).expect("health reply"),
-        SupervisionReply::ComponentHealthReport(report)
+        SupervisionReply::HealthReport(report)
             if report.health == ComponentHealth::Running
     ));
 
@@ -266,8 +280,8 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
 
 fn write_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
     let frame = SupervisionFrame::new(SupervisionFrameBody::Request {
-        exchange: test_exchange(),
-        request: Request::from_payload(request),
+        exchange: test_frame_exchange(),
+        request: FrameRequest::from_payload(request),
     });
     let bytes = frame
         .encode_length_prefixed()
@@ -276,6 +290,14 @@ fn write_supervision_request(stream: &mut UnixStream, request: SupervisionReques
         .write_all(bytes.as_slice())
         .expect("supervision request writes");
     stream.flush().expect("supervision request flushes");
+}
+
+fn test_frame_exchange() -> FrameExchangeIdentifier {
+    FrameExchangeIdentifier::new(
+        FrameSessionEpoch::new(1),
+        FrameExchangeLane::Connector,
+        FrameLaneSequence::new(1),
+    )
 }
 
 fn test_exchange() -> ExchangeIdentifier {
