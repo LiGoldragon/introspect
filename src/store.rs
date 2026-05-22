@@ -9,12 +9,16 @@ use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SnapshotId,
     TableDescriptor, TableName, TableReference,
 };
-use signal_persona_introspect::{IntrospectionReply, IntrospectionRequest};
+use signal_persona_auth::ComponentName;
+use signal_persona_introspect::{
+    DeliveryTrace, DeliveryTraceEvent, DeliveryTraceQuery, IntrospectionReply, IntrospectionRequest,
+};
 
 use crate::Result;
 
-const INTROSPECTION_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(1);
+const INTROSPECTION_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(2);
 const OBSERVATIONS: TableName = TableName::new("introspection_observations");
+const DELIVERY_TRACE_EVENTS: TableName = TableName::new("delivery_trace_events");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreLocation {
@@ -50,6 +54,7 @@ impl StoreLocation {
 pub struct IntrospectionStore {
     engine: Engine,
     observations: TableReference<StoredObservation>,
+    delivery_trace_events: TableReference<StoredDeliveryTraceEvent>,
 }
 
 impl IntrospectionStore {
@@ -59,9 +64,12 @@ impl IntrospectionStore {
             INTROSPECTION_SCHEMA_VERSION,
         ))?;
         let observations = engine.register_table(TableDescriptor::new(OBSERVATIONS))?;
+        let delivery_trace_events =
+            engine.register_table(TableDescriptor::new(DELIVERY_TRACE_EVENTS))?;
         Ok(Self {
             engine,
             observations,
+            delivery_trace_events,
         })
     }
 
@@ -81,6 +89,38 @@ impl IntrospectionStore {
             .match_records(QueryPlan::all(self.observations))?
             .records()
             .to_vec())
+    }
+
+    pub fn record_delivery_trace_event(
+        &self,
+        event: DeliveryTraceEvent,
+    ) -> Result<ObservationReceipt> {
+        let stored_event = StoredDeliveryTraceEvent::new(event.clone());
+        let receipt = self
+            .engine
+            .assert(Assertion::new(self.delivery_trace_events, stored_event))?;
+        Ok(ObservationReceipt::new(
+            ObservationSequence::new(event.key().hop_index.value() as u64),
+            receipt.snapshot(),
+        ))
+    }
+
+    pub fn delivery_trace(&self, query: DeliveryTraceQuery) -> Result<DeliveryTrace> {
+        let mut events = self
+            .engine
+            .match_records(QueryPlan::all(self.delivery_trace_events))?
+            .records()
+            .iter()
+            .filter(|stored_event| stored_event.event().key().matches_query(&query))
+            .map(|stored_event| stored_event.event().clone())
+            .collect::<Vec<_>>();
+        events.sort_by_key(|event| event.key().hop_index);
+        Ok(DeliveryTrace {
+            engine: query.engine,
+            message_identifier: query.message_identifier,
+            originator: query.originator,
+            events,
+        })
     }
 
     pub fn operation_log(&self) -> Result<Vec<CommitLogEntry>> {
@@ -120,6 +160,52 @@ impl Message<RecordObservation> for IntrospectionStore {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.record_observation(message.observation)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordDeliveryTraceEvent {
+    event: DeliveryTraceEvent,
+}
+
+impl RecordDeliveryTraceEvent {
+    pub fn new(event: DeliveryTraceEvent) -> Self {
+        Self { event }
+    }
+}
+
+impl Message<RecordDeliveryTraceEvent> for IntrospectionStore {
+    type Reply = Result<ObservationReceipt>;
+
+    async fn handle(
+        &mut self,
+        message: RecordDeliveryTraceEvent,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.record_delivery_trace_event(message.event)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadDeliveryTrace {
+    query: DeliveryTraceQuery,
+}
+
+impl ReadDeliveryTrace {
+    pub fn new(query: DeliveryTraceQuery) -> Self {
+        Self { query }
+    }
+}
+
+impl Message<ReadDeliveryTrace> for IntrospectionStore {
+    type Reply = Result<DeliveryTrace>;
+
+    async fn handle(
+        &mut self,
+        message: ReadDeliveryTrace,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.delivery_trace(message.query)
     }
 }
 
@@ -208,5 +294,50 @@ impl StoredObservation {
 impl EngineRecord for StoredObservation {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(self.sequence.value().to_string())
+    }
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StoredDeliveryTraceEvent {
+    event: DeliveryTraceEvent,
+}
+
+impl StoredDeliveryTraceEvent {
+    pub fn new(event: DeliveryTraceEvent) -> Self {
+        Self { event }
+    }
+
+    pub fn event(&self) -> &DeliveryTraceEvent {
+        &self.event
+    }
+}
+
+impl EngineRecord for StoredDeliveryTraceEvent {
+    fn record_key(&self) -> RecordKey {
+        delivery_trace_event_key(&self.event)
+    }
+}
+
+fn delivery_trace_event_key(event: &DeliveryTraceEvent) -> RecordKey {
+    let key = event.key();
+    RecordKey::new(format!(
+        "{}/{}/{}/{:010}",
+        key.engine.as_str(),
+        key.message_identifier.into_u64(),
+        component_name(key.originator),
+        key.hop_index.value()
+    ))
+}
+
+fn component_name(component: ComponentName) -> &'static str {
+    match component {
+        ComponentName::Mind => "Mind",
+        ComponentName::Message => "Message",
+        ComponentName::Router => "Router",
+        ComponentName::Terminal => "Terminal",
+        ComponentName::Harness => "Harness",
+        ComponentName::System => "System",
+        ComponentName::Introspect => "Introspect",
+        ComponentName::Orchestrate => "Orchestrate",
     }
 }

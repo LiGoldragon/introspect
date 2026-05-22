@@ -5,10 +5,11 @@ use persona_introspect::runtime::{
 };
 use persona_introspect::store::{IntrospectionStore, StoreLocation};
 use signal_core::SignalVerb;
-use signal_persona_auth::EngineId;
+use signal_persona_auth::{ComponentName, EngineId};
 use signal_persona_introspect::{
-    ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery, EngineSnapshotQuery,
-    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
+    ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
+    DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
+    IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
 
 struct IntrospectionStoreFixture {
@@ -139,7 +140,8 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
         }),
         IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
             engine: engine.clone(),
-            correlation: CorrelationId::new("fixture-delivery"),
+            message_identifier: MessageIdentifier::new(7),
+            originator: ComponentName::Message,
         }),
         IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
             engine: engine.clone(),
@@ -191,6 +193,106 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
 }
 
 #[test]
+fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
+    use persona_introspect::store::RecordDeliveryTraceEvent;
+
+    let fixture = IntrospectionStoreFixture::new();
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let root = runtime
+        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
+            targets: TargetSocketDirectory::empty(),
+            store: fixture.store(),
+        }))
+        .expect("root starts");
+    let engine = EngineId::new("prototype");
+    let message_identifier = MessageIdentifier::new(7);
+    let originator = ComponentName::Message;
+    let events = vec![
+        trace_event(
+            engine.clone(),
+            message_identifier,
+            originator,
+            2,
+            ComponentName::Router,
+            DeliveryTraceStatus::Routed,
+        ),
+        trace_event(
+            engine.clone(),
+            message_identifier,
+            originator,
+            0,
+            ComponentName::Message,
+            DeliveryTraceStatus::Accepted,
+        ),
+        trace_event(
+            engine.clone(),
+            message_identifier,
+            originator,
+            3,
+            ComponentName::Harness,
+            DeliveryTraceStatus::Failed,
+        ),
+        trace_event(
+            engine.clone(),
+            message_identifier,
+            originator,
+            1,
+            ComponentName::Mind,
+            DeliveryTraceStatus::Routed,
+        ),
+    ];
+
+    for event in events {
+        runtime.block_on(async {
+            root.ask(RecordDeliveryTraceEvent::new(event))
+                .await
+                .expect("store actor handles trace event")
+        });
+    }
+
+    let request = IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
+        engine,
+        message_identifier,
+        originator,
+    });
+    let reply = runtime
+        .block_on(async {
+            root.ask(HandleIntrospectionRequest {
+                request: request.clone(),
+            })
+            .await
+        })
+        .expect("root actor replies");
+
+    runtime
+        .block_on(root.stop_gracefully())
+        .expect("root stops gracefully");
+    runtime.block_on(root.wait_for_shutdown());
+    drop(root);
+    drop(runtime);
+
+    let IntrospectionReply::DeliveryTrace(trace) = reply else {
+        panic!("expected delivery trace reply");
+    };
+    assert_eq!(trace.events.len(), 4);
+    let hops = trace
+        .events
+        .iter()
+        .map(|event| event.key().hop_index.value())
+        .collect::<Vec<_>>();
+    assert_eq!(hops, vec![0, 1, 2, 3]);
+
+    let store = IntrospectionStore::open(&fixture.store()).expect("store reopens");
+    let operation_log = store.operation_log().expect("operation log reads");
+    assert_eq!(operation_log.len(), 5);
+    for operation in operation_log.iter().take(4) {
+        let operation = operation.operations().head();
+        assert_eq!(operation.verb(), SignalVerb::Assert);
+        assert_eq!(operation.table_name(), "delivery_trace_events");
+    }
+}
+
+#[test]
 fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
     let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let manifest = std::fs::read_to_string(&manifest_path).expect("manifest reads");
@@ -222,4 +324,24 @@ fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
              (live observations cross daemon sockets; introspect does not call peer internals)"
         );
     }
+}
+
+fn trace_event(
+    engine: EngineId,
+    message_identifier: MessageIdentifier,
+    originator: ComponentName,
+    hop_index: u32,
+    component: ComponentName,
+    status: DeliveryTraceStatus,
+) -> DeliveryTraceEvent {
+    DeliveryTraceEvent::new(
+        DeliveryTraceKey::new(
+            engine,
+            message_identifier,
+            originator,
+            HopIndex::new(hop_index),
+        ),
+        component,
+        status,
+    )
 }

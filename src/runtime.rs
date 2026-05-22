@@ -12,7 +12,7 @@ use signal_core::{
 };
 use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
-    ComponentReadiness, ComponentSnapshot, DeliveryTrace, EngineSnapshot, IntrospectionReply,
+    ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
 use signal_persona_router::{
@@ -21,7 +21,8 @@ use signal_persona_router::{
 
 use crate::error::{Error, Result};
 use crate::store::{
-    IntrospectionStore, ObservationSequence, RecordObservation, StoreLocation, StoredObservation,
+    IntrospectionStore, ObservationSequence, ReadDeliveryTrace, RecordDeliveryTraceEvent,
+    RecordObservation, StoreLocation, StoredObservation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,11 +134,17 @@ impl IntrospectionRoot {
             }
             IntrospectionRequest::DeliveryTrace(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                Ok(IntrospectionReply::DeliveryTrace(DeliveryTrace {
-                    engine: query.engine,
-                    correlation: query.correlation,
-                    status: None,
-                }))
+                let trace = match self.store.ask(ReadDeliveryTrace::new(query)).await {
+                    Ok(trace) => trace,
+                    Err(SendError::HandlerError(error)) => return Err(error),
+                    Err(error) => {
+                        return Err(Error::Actor {
+                            operation: "read delivery trace",
+                            detail: format!("{error:?}"),
+                        });
+                    }
+                };
+                Ok(IntrospectionReply::DeliveryTrace(trace))
             }
             IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query).await,
         }
@@ -243,6 +250,25 @@ impl Message<HandleIntrospectionRequest> for IntrospectionRoot {
         let reply = self.handle_request(request.clone()).await?;
         self.record_observation(request, reply.clone()).await?;
         Ok(reply)
+    }
+}
+
+impl Message<RecordDeliveryTraceEvent> for IntrospectionRoot {
+    type Reply = Result<()>;
+
+    async fn handle(
+        &mut self,
+        message: RecordDeliveryTraceEvent,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self.store.ask(message).await {
+            Ok(_receipt) => Ok(()),
+            Err(SendError::HandlerError(error)) => Err(error),
+            Err(error) => Err(Error::Actor {
+                operation: "record delivery trace event",
+                detail: format!("{error:?}"),
+            }),
+        }
     }
 }
 

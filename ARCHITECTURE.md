@@ -33,21 +33,22 @@ fact.
 - **`introspect.redb`** — persona-introspect's own typed database,
   consumed through `sema-engine`. Stores: query/reply/error audit
   trail (landed); subscription registrations; delivery trace
-  cache keyed by `DeliveryTraceKey`, populated by Subscribe
-  deltas from peer streams (transitional — gated on per-peer
-  observation contracts and sema-engine's Subscribe primitive).
-  Observations are persisted as typed records.
+  cache keyed by `DeliveryTraceKey` (landed), populated today by
+  typed ingress into `IntrospectionRoot` and eventually by Subscribe
+  deltas from peer Tap streams. Observations are persisted as typed
+  records.
 - NOTA projection for humans, agents, and future UIs.
 
 `DeliveryTraceKey` is introspection-domain state — an
 introspection-owned key for joining router, harness, and terminal
 observations that belong to the same message-delivery trace. It is
-not a Signal exchange id, not a request/reply correlation id, and
-not payload correlation metadata. Transport ordering and reply
-matching belong to the Signal frame layer; delivery-trace joining
-belongs to persona-introspect's own store. The key is derived from
-peer observation values (message slot id, router id, terminal id)
-and never leaks into Signal frames.
+not a Signal exchange identifier and not request/reply correlation.
+Transport ordering and reply matching belong to the Signal frame
+layer; delivery-trace joining belongs to persona-introspect's own
+store. The key has four fields:
+`engine`, `message_identifier`, `originator`, and `hop_index`. The
+first three fields join one message-delivery chain; `hop_index`
+orders the observed hops without relying on clocks.
 
 ## 2. Non-ownership
 
@@ -107,7 +108,7 @@ graph TD
 | Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. Current read variants are `Match`; `SubscribeComponent` maps to `Subscribe`. |
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot `Match` query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` Match frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
-| `DeliveryTraceKey` is introspection-domain state. | Source scan: `DeliveryTraceKey` never appears in any `signal-persona-*` request or reply payload, only in `introspect.redb` records and CLI projections. |
+| `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-persona-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records four events and reads them back ordered by `hop_index`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
 | Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |
 | Subscription deltas push as typed events; consumers do not poll. | Source scan: no timer-based loops in client actors; each client opens one Subscribe stream per peer. |
@@ -156,5 +157,6 @@ The remaining work:
   to peer streams. Gated on sema-engine's per-peer
   commit-then-emit semantics. Destination: `SubscribeComponent`
   wire variant + forwarded peer subscriptions + cache-backed
-  `DeliveryTrace`. Until then, `DeliveryTrace` returns
-  `AwaitingCorrelationCache`.
+  `DeliveryTrace`. Until then, `DeliveryTrace` is populated by the
+  root's typed delivery-trace event ingress; an empty event vector
+  means no correlated Tap events have arrived for the query key.

@@ -27,12 +27,12 @@ use signal_persona::engine_management::{
 use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
-use signal_persona_auth::EngineId;
+use signal_persona_auth::{ComponentName as AuthComponentName, EngineId};
 use signal_persona_auth::{OwnerIdentity, UnixUserId};
 use signal_persona_introspect::{
-    ComponentSnapshotQuery, CorrelationId, DeliveryTraceQuery, EngineSnapshotQuery,
-    IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
-    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, PrototypeWitnessQuery,
+    ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
+    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
+    IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
@@ -265,14 +265,16 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
 
     let delivery_reply = serve_one(IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
         engine: EngineId::new("prototype"),
-        correlation: CorrelationId::new("delivery-aab"),
+        message_identifier: MessageIdentifier::new(7),
+        originator: AuthComponentName::Message,
     }));
     match delivery_reply {
         IntrospectionReply::DeliveryTrace(trace) => {
-            assert_eq!(trace.correlation, CorrelationId::new("delivery-aab"));
-            // No router trace observed yet → status is None on the
-            // carrier record; the inner DeliveryTraceStatus stays closed.
-            assert_eq!(trace.status, None);
+            assert_eq!(trace.message_identifier, MessageIdentifier::new(7));
+            assert_eq!(trace.originator, AuthComponentName::Message);
+            // No Tap trace observed yet → the carrier's event vector is
+            // empty; each present event carries a closed status.
+            assert!(trace.events.is_empty());
         }
         other => panic!("expected delivery trace, got {other:?}"),
     }

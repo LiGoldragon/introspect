@@ -54,3 +54,10 @@ composes the result into the carrier record (`PrototypeWitness`,
 `ComponentSnapshot`, etc.) — using `Some(state)` when the peer
 answered, `None` when the peer socket is not configured or the
 peer daemon has not yet shipped that contract operation.
+
+Delivery-trace observations are keyed by
+`signal_persona_introspect::DeliveryTraceKey`. The first three fields
+(`engine`, `message_identifier`, `originator`) join one delivery chain;
+`hop_index` orders the events. Tests should insert events out of order
+and query them back through `IntrospectionRoot`, not by opening the
+store table directly.
