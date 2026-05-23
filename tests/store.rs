@@ -4,7 +4,6 @@ use persona_introspect::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use persona_introspect::store::{IntrospectionStore, StoreLocation};
-use signal_core::SignalVerb;
 use signal_persona_auth::{ComponentName, EngineId};
 use signal_persona_introspect::{
     ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
@@ -89,7 +88,7 @@ fn introspection_root_records_observations_through_sema_engine() {
     assert!(matches!(reply, IntrospectionReply::PrototypeWitness(_)));
     assert_eq!(operation_log.len(), 1);
     let operation = operation_log[0].operations().head();
-    assert_eq!(operation.verb(), SignalVerb::Assert);
+    assert_eq!(operation.operation().as_record_head(), "Assert");
     assert_eq!(operation.table_name(), "introspection_observations");
     assert_eq!(operation.key().map(|key| key.as_str()), Some("1"));
 }
@@ -187,7 +186,7 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
         assert_eq!(observation.request(), request);
         assert_eq!(observation.reply(), reply);
         let operation = operation_log[index].operations().head();
-        assert_eq!(operation.verb(), SignalVerb::Assert);
+        assert_eq!(operation.operation().as_record_head(), "Assert");
         assert_eq!(operation.table_name(), "introspection_observations");
     }
 }
@@ -306,7 +305,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     assert_eq!(operation_log.len(), 7);
     for operation in operation_log.iter().take(6) {
         let operation = operation.operations().head();
-        assert_eq!(operation.verb(), SignalVerb::Assert);
+        assert_eq!(operation.operation().as_record_head(), "Assert");
         assert_eq!(operation.table_name(), "delivery_trace_events");
     }
 }

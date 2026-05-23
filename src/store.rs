@@ -7,7 +7,7 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::SchemaVersion;
 use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
-    SnapshotId, TableDescriptor, TableName, TableReference,
+    SnapshotIdentifier, TableDescriptor, TableName, TableReference,
 };
 use signal_persona_auth::ComponentName;
 use signal_persona_introspect::{
@@ -245,11 +245,11 @@ impl ObservationSequence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservationReceipt {
     sequence: ObservationSequence,
-    snapshot: SnapshotId,
+    snapshot: SnapshotIdentifier,
 }
 
 impl ObservationReceipt {
-    pub fn new(sequence: ObservationSequence, snapshot: SnapshotId) -> Self {
+    pub fn new(sequence: ObservationSequence, snapshot: SnapshotIdentifier) -> Self {
         Self { sequence, snapshot }
     }
 
@@ -257,7 +257,7 @@ impl ObservationReceipt {
         self.sequence
     }
 
-    pub fn snapshot(&self) -> SnapshotId {
+    pub fn snapshot(&self) -> SnapshotIdentifier {
         self.snapshot
     }
 }
