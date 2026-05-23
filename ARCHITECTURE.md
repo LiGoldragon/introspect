@@ -48,7 +48,9 @@ layer; delivery-trace joining belongs to persona-introspect's own
 store. The key has four fields:
 `engine`, `message_identifier`, `originator`, and `hop_index`. The
 first three fields join one message-delivery chain; `hop_index`
-orders the observed hops without relying on clocks.
+orders the observed hops without relying on clocks. The store uses
+the join portion as the key-range prefix, then sorts the returned
+events by `hop_index`.
 
 ## 2. Non-ownership
 
@@ -108,7 +110,7 @@ graph TD
 | Every `IntrospectionRequest` variant declares a Signal root-verb mapping. | `signal_verb()` method on `IntrospectionRequest` returns `signal_core::SignalVerb` + round-trip tests asserting verb+payload alignment. Current read variants are `Match`; `SubscribeComponent` maps to `Subscribe`. |
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot `Match` query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` Match frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
-| `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-persona-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records four events and reads them back ordered by `hop_index`. |
+| `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-persona-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records matching and nonmatching events, range-queries by the join key, and reads back only the four matching hops ordered by `hop_index`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
 | Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |
 | Subscription deltas push as typed events; consumers do not poll. | Source scan: no timer-based loops in client actors; each client opens one Subscribe stream per peer. |

@@ -664,7 +664,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-introspect.git#7bc2867cd4175a486f0911df667bd23ceb498f20"
+source = "git+https://github.com/LiGoldragon/signal-persona-introspect.git#975975ccf379e2d75a5ca465ff6834f771a729d3"
 dependencies = [
  "nota-codec",
  "nota-config",

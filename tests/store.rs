@@ -242,7 +242,26 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         ),
     ];
 
-    for event in events {
+    let noise = vec![
+        trace_event(
+            engine.clone(),
+            MessageIdentifier::new(8),
+            originator,
+            0,
+            ComponentName::Message,
+            DeliveryTraceStatus::Accepted,
+        ),
+        trace_event(
+            engine.clone(),
+            message_identifier,
+            ComponentName::Harness,
+            0,
+            ComponentName::Harness,
+            DeliveryTraceStatus::Accepted,
+        ),
+    ];
+
+    for event in events.into_iter().chain(noise) {
         runtime.block_on(async {
             root.ask(RecordDeliveryTraceEvent::new(event))
                 .await
@@ -284,8 +303,8 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
 
     let store = IntrospectionStore::open(&fixture.store()).expect("store reopens");
     let operation_log = store.operation_log().expect("operation log reads");
-    assert_eq!(operation_log.len(), 5);
-    for operation in operation_log.iter().take(4) {
+    assert_eq!(operation_log.len(), 7);
+    for operation in operation_log.iter().take(6) {
         let operation = operation.operations().head();
         assert_eq!(operation.verb(), SignalVerb::Assert);
         assert_eq!(operation.table_name(), "delivery_trace_events");

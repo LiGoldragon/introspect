@@ -6,12 +6,13 @@ use kameo::message::{Context, Message};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema::SchemaVersion;
 use sema_engine::{
-    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SnapshotId,
-    TableDescriptor, TableName, TableReference,
+    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
+    SnapshotId, TableDescriptor, TableName, TableReference,
 };
 use signal_persona_auth::ComponentName;
 use signal_persona_introspect::{
-    DeliveryTrace, DeliveryTraceEvent, DeliveryTraceQuery, IntrospectionReply, IntrospectionRequest,
+    DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
+    IntrospectionReply, IntrospectionRequest,
 };
 
 use crate::Result;
@@ -108,7 +109,10 @@ impl IntrospectionStore {
     pub fn delivery_trace(&self, query: DeliveryTraceQuery) -> Result<DeliveryTrace> {
         let mut events = self
             .engine
-            .match_records(QueryPlan::all(self.delivery_trace_events))?
+            .match_records(QueryPlan::key_range(
+                self.delivery_trace_events,
+                delivery_trace_query_range(&query),
+            ))?
             .records()
             .iter()
             .filter(|stored_event| stored_event.event().key().matches_query(&query))
@@ -320,13 +324,25 @@ impl EngineRecord for StoredDeliveryTraceEvent {
 
 fn delivery_trace_event_key(event: &DeliveryTraceEvent) -> RecordKey {
     let key = event.key();
-    RecordKey::new(format!(
-        "{}/{}/{}/{:010}",
+    let join_key = delivery_trace_join_key_prefix(&key.join_key());
+    RecordKey::new(format!("{}/{:010}", join_key, key.hop_index.value()))
+}
+
+fn delivery_trace_query_range(query: &DeliveryTraceQuery) -> KeyRange {
+    let prefix = delivery_trace_join_key_prefix(&query.join_key());
+    KeyRange::between(
+        RecordKey::new(format!("{prefix}/")),
+        RecordKey::new(format!("{prefix}/~")),
+    )
+}
+
+fn delivery_trace_join_key_prefix(key: &DeliveryTraceJoinKey) -> String {
+    format!(
+        "{}/{}/{}",
         key.engine.as_str(),
         key.message_identifier.into_u64(),
-        component_name(key.originator),
-        key.hop_index.value()
-    ))
+        component_name(key.originator)
+    )
 }
 
 fn component_name(component: ComponentName) -> &'static str {
