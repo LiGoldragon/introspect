@@ -1,10 +1,10 @@
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
     IntrospectionReply, PrototypeWitness as SignalPrototypeWitness,
     PrototypeWitnessQuery as SignalPrototypeWitnessQuery,
 };
+use signal_persona_origin::EngineIdentifier;
 
 use crate::error::Result;
 
@@ -16,7 +16,7 @@ pub struct PrototypeWitness {
 impl PrototypeWitness {
     pub fn into_signal(self) -> SignalPrototypeWitnessQuery {
         SignalPrototypeWitnessQuery {
-            engine: EngineId::new(self.engine),
+            engine: EngineIdentifier::new(self.engine),
         }
     }
 }

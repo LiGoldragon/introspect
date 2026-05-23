@@ -9,11 +9,11 @@ use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
     SnapshotIdentifier, TableDescriptor, TableName, TableReference,
 };
-use signal_persona_auth::ComponentName;
 use signal_persona_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
     IntrospectionReply, IntrospectionRequest,
 };
+use signal_persona_origin::ComponentName;
 
 use crate::Result;
 
@@ -355,5 +355,6 @@ fn component_name(component: ComponentName) -> &'static str {
         ComponentName::System => "System",
         ComponentName::Introspect => "Introspect",
         ComponentName::Orchestrate => "Orchestrate",
+        ComponentName::Spirit => "Spirit",
     }
 }

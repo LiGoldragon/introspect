@@ -27,13 +27,13 @@ use signal_persona::engine_management::{
 use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
-use signal_persona_auth::{ComponentName as AuthComponentName, EngineId};
-use signal_persona_auth::{OwnerIdentity, UnixUserId};
 use signal_persona_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
     IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
+use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
+use signal_persona_origin::{OwnerIdentity, UnixUserId};
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let directory = tempfile::tempdir().expect("tempdir");
@@ -85,7 +85,7 @@ fn introspection_frame_codec_rejects_mismatched_signal_verb() {
     let request = Request::from_operations(NonEmpty::single(Operation::new(
         SignalVerb::Assert,
         IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
-            engine: EngineId::new("prototype"),
+            engine: EngineIdentifier::new("prototype"),
         }),
     )));
     let frame = IntrospectionFrame::new(FrameBody::Request {
@@ -109,13 +109,13 @@ fn introspection_frame_codec_rejects_mismatched_signal_verb() {
 fn daemon_serves_prototype_witness_over_signal_socket() {
     let reply = serve_one(IntrospectionRequest::PrototypeWitness(
         PrototypeWitnessQuery {
-            engine: EngineId::new("prototype"),
+            engine: EngineIdentifier::new("prototype"),
         },
     ));
 
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
-            assert_eq!(witness.engine, EngineId::new("prototype"));
+            assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
             // Daemon skeleton has not yet collected peer observations;
             // every field is None per the closed-enum contract.
             assert_eq!(witness.manager_seen, None);
@@ -220,7 +220,7 @@ fn daemon_answers_component_supervision_relation() {
 
 #[test]
 fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
-    let engine = EngineId::new("prototype");
+    let engine = EngineIdentifier::new("prototype");
 
     let engine_reply = serve_one(IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
         engine: engine.clone(),
@@ -249,7 +249,7 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
 
     let component_reply = serve_one(IntrospectionRequest::ComponentSnapshot(
         ComponentSnapshotQuery {
-            engine: EngineId::new("prototype"),
+            engine: EngineIdentifier::new("prototype"),
             target: IntrospectionTarget::Router,
         },
     ));
@@ -264,7 +264,7 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
     }
 
     let delivery_reply = serve_one(IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
-        engine: EngineId::new("prototype"),
+        engine: EngineIdentifier::new("prototype"),
         message_identifier: MessageIdentifier::new(7),
         originator: AuthComponentName::Message,
     }));

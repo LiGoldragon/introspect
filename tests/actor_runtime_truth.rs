@@ -10,8 +10,8 @@ use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_auth::EngineId;
 use signal_persona_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
+use signal_persona_origin::EngineIdentifier;
 use signal_persona_router::{
     RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummary,
 };
@@ -49,7 +49,7 @@ fn prototype_witness_uses_introspection_root_actor() {
         .block_on(async {
             root.ask(ExplainPrototypeWitness {
                 query: PrototypeWitnessQuery {
-                    engine: EngineId::new("prototype"),
+                    engine: EngineIdentifier::new("prototype"),
                 },
             })
             .await
@@ -58,7 +58,7 @@ fn prototype_witness_uses_introspection_root_actor() {
 
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
-            assert_eq!(witness.engine, EngineId::new("prototype"));
+            assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
             // Daemon skeleton has not yet collected peer observations;
             // every field is None per the closed-enum contract.
             assert_eq!(witness.delivery_status, None);
@@ -95,7 +95,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
                 per_operation: NonEmpty::single(SubReply::Ok {
                     verb: SignalVerb::Match,
                     payload: RouterReply::Summary(RouterSummary {
-                        engine: EngineId::new("prototype"),
+                        engine: EngineIdentifier::new("prototype"),
                         accepted_messages: 0,
                         routed_messages: 0,
                         deferred_messages: 0,
@@ -129,7 +129,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
         .block_on(async {
             root.ask(ExplainPrototypeWitness {
                 query: PrototypeWitnessQuery {
-                    engine: EngineId::new("prototype"),
+                    engine: EngineIdentifier::new("prototype"),
                 },
             })
             .await
@@ -138,7 +138,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
 
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
-            assert_eq!(witness.engine, EngineId::new("prototype"));
+            assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
             assert_eq!(witness.router_seen, Some(ComponentReadiness::Ready));
             assert_eq!(witness.manager_seen, None);
             assert_eq!(witness.terminal_seen, None);

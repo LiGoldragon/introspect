@@ -30,7 +30,7 @@ sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.
 signal-core               = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }
-signal-persona-auth       = { git = "https://github.com/LiGoldragon/signal-persona-auth.git" }
+signal-persona-origin       = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
 signal-persona-introspect = { git = "https://github.com/LiGoldragon/signal-persona-introspect.git" }
 signal-persona-router     = { git = "https://github.com/LiGoldragon/signal-persona-router.git", branch = "main" }
 thiserror                 = "2"

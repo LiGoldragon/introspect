@@ -4,12 +4,12 @@ use persona_introspect::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use persona_introspect::store::{IntrospectionStore, StoreLocation};
-use signal_persona_auth::{ComponentName, EngineId};
 use signal_persona_introspect::{
     ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
     DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
     IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
+use signal_persona_origin::{ComponentName, EngineIdentifier};
 
 struct IntrospectionStoreFixture {
     directory: tempfile::TempDir,
@@ -58,7 +58,7 @@ fn introspection_root_records_observations_through_sema_engine() {
         }))
         .expect("root starts");
     let request = IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
-        engine: EngineId::new("prototype"),
+        engine: EngineIdentifier::new("prototype"),
     });
 
     let reply = runtime
@@ -128,7 +128,7 @@ fn introspection_store_opens_local_state_through_sema_engine() {
 fn every_introspection_request_variant_persists_through_actor_root_and_sema_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let engine = EngineId::new("prototype");
+    let engine = EngineIdentifier::new("prototype");
     let requests = [
         IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
             engine: engine.clone(),
@@ -203,7 +203,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
             store: fixture.store(),
         }))
         .expect("root starts");
-    let engine = EngineId::new("prototype");
+    let engine = EngineIdentifier::new("prototype");
     let message_identifier = MessageIdentifier::new(7);
     let originator = ComponentName::Message;
     let events = vec![
@@ -345,7 +345,7 @@ fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
 }
 
 fn trace_event(
-    engine: EngineId,
+    engine: EngineIdentifier,
     message_identifier: MessageIdentifier,
     originator: ComponentName,
     hop_index: u32,

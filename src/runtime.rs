@@ -10,11 +10,11 @@ use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
     SessionEpoch, SignalVerb, SubReply,
 };
-use signal_persona_auth::EngineId;
 use signal_persona_introspect::{
     ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
+use signal_persona_origin::EngineIdentifier;
 use signal_persona_router::{
     RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummaryQuery,
 };
@@ -375,7 +375,7 @@ impl RouterClient {
 
     fn query_summary_over_socket(
         socket: PathBuf,
-        engine: EngineId,
+        engine: EngineIdentifier,
     ) -> Result<Option<ComponentReadiness>> {
         let mut stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -407,7 +407,7 @@ impl Actor for RouterClient {
 }
 
 pub struct QueryRouterSummary {
-    pub engine: EngineId,
+    pub engine: EngineIdentifier,
 }
 
 impl Message<QueryRouterSummary> for RouterClient {
@@ -474,7 +474,7 @@ fn router_exchange() -> ExchangeIdentifier {
 }
 
 fn router_summary_readiness(
-    expected_engine: EngineId,
+    expected_engine: EngineIdentifier,
     frame: RouterFrame,
 ) -> Result<Option<ComponentReadiness>> {
     match frame.into_body() {
