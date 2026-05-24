@@ -1,0 +1,32 @@
+{}
+
+[
+  (Observe [Engine Component DeliveryTrace PrototypeWitness])
+  (Tap [Observation])
+  (Untap [Observation])
+]
+
+[]
+
+[]
+
+{
+  Observe [(Engine Engine) (Component Component) (DeliveryTrace DeliveryTrace) (PrototypeWitness PrototypeWitness)]
+  Tap [(Observation Observation)]
+  Untap [(Observation Observation)]
+  Engine (Identifier)
+  Component (Name)
+  DeliveryTrace (Identifier)
+  PrototypeWitness (Text)
+  Observation (Identifier)
+  Text (String)
+  Identifier (u64)
+  Name (String)
+  Path (String)
+  Status [Concept Active Retired]
+}
+
+[
+  (Version 0 1)
+  (Status Concept)
+]
