@@ -16,6 +16,11 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
     RequestRejectionReason, SessionEpoch, SignalVerb,
 };
+use signal_engine_management::{
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
+    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
+    Presence, Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
     LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
@@ -25,15 +30,8 @@ use signal_introspect::{
     IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
-use signal_persona::engine_management::{
-    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
-    Query as SupervisionQuery, Reply as SupervisionReply,
-};
-use signal_persona::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
-};
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
-use signal_persona_origin::{OwnerIdentity, UnixUserId};
+use signal_persona_origin::{OwnerIdentity, UnixUserIdentifier};
 
 fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let directory = tempfile::tempdir().expect("tempdir");
@@ -151,7 +149,7 @@ fn daemon_answers_component_supervision_relation() {
         terminal_socket_path: WirePath::new(
             directory.path().join("terminal.sock").display().to_string(),
         ),
-        owner_identity: OwnerIdentity::UnixUser(UnixUserId::new(1000)),
+        owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
     };
     let mut encoder = Encoder::new();
     configuration
