@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use persona_introspect::runtime::{
+use introspect::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
-use persona_introspect::store::{IntrospectionStore, StoreLocation};
-use signal_persona_introspect::{
+use introspect::store::{IntrospectionStore, StoreLocation};
+use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
     DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
     IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
@@ -108,7 +108,7 @@ fn introspection_source_does_not_open_peer_component_redb_files() {
     ] {
         assert!(
             !source.contains(forbidden),
-            "persona-introspect source must not contain peer database path or open call: {forbidden}"
+            "introspect source must not contain peer database path or open call: {forbidden}"
         );
     }
 }
@@ -193,7 +193,7 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
 
 #[test]
 fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
-    use persona_introspect::store::RecordDeliveryTraceEvent;
+    use introspect::store::RecordDeliveryTraceEvent;
 
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -338,7 +338,7 @@ fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
             .any(|dependency| dependency == forbidden);
         assert!(
             !direct_dependency_present,
-            "persona-introspect must not depend on peer runtime crate: {forbidden} \
+            "introspect must not depend on peer runtime crate: {forbidden} \
              (live observations cross daemon sockets; introspect does not call peer internals)"
         );
     }

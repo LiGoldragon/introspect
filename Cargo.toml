@@ -1,15 +1,15 @@
 [package]
-name         = "persona-introspect"
+name         = "introspect"
 version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.88"
 license      = "MIT OR Apache-2.0"
-repository   = "https://github.com/LiGoldragon/persona-introspect"
+repository   = "https://github.com/LiGoldragon/introspect"
 description  = "Persona inspection-plane daemon and CLI."
 publish      = false
 
 [lib]
-name = "persona_introspect"
+name = "introspect"
 path = "src/lib.rs"
 
 [[bin]]
@@ -17,8 +17,8 @@ name = "introspect"
 path = "src/main.rs"
 
 [[bin]]
-name = "persona-introspect-daemon"
-path = "src/bin/persona_introspect_daemon.rs"
+name = "introspect-daemon"
+path = "src/bin/introspect_daemon.rs"
 
 [dependencies]
 kameo                     = { version = "0.20", default-features = false, features = ["macros"] }
@@ -31,7 +31,7 @@ signal-core               = { git = "https://github.com/LiGoldragon/signal-core.
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 signal-persona-origin       = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
-signal-persona-introspect = { git = "https://github.com/LiGoldragon/signal-persona-introspect.git" }
+signal-introspect = { git = "https://github.com/LiGoldragon/signal-introspect.git" }
 signal-persona-router     = { git = "https://github.com/LiGoldragon/signal-persona-router.git", branch = "main" }
 thiserror                 = "2"
 tokio                     = { version = "1", features = ["rt-multi-thread"] }

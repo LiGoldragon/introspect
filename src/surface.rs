@@ -1,6 +1,6 @@
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaRecord};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use signal_persona_introspect::{
+use signal_introspect::{
     IntrospectionReply, PrototypeWitness as SignalPrototypeWitness,
     PrototypeWitnessQuery as SignalPrototypeWitnessQuery,
 };

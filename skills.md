@@ -1,4 +1,4 @@
-# skills - persona-introspect
+# skills - introspect
 
 *Per-repo agent guide.*
 
@@ -15,11 +15,11 @@ Before changing code in this repo, read:
 - `~/primary/skills/subscription-lifecycle.md`
 - `~/primary/skills/push-not-pull.md`
 - this repo's `ARCHITECTURE.md`
-- `signal-persona-introspect/ARCHITECTURE.md`
+- `signal-introspect/ARCHITECTURE.md`
 
 ## What this repo owns
 
-- `persona-introspect-daemon`
+- `introspect-daemon`
 - `introspect` CLI
 - Runtime fan-out to component daemons over Signal.
 - Local observation audit state in `introspect.redb`, opened through
@@ -56,7 +56,7 @@ answered, `None` when the peer socket is not configured or the
 peer daemon has not yet shipped that contract operation.
 
 Delivery-trace observations are keyed by
-`signal_persona_introspect::DeliveryTraceKey`. The first three fields
+`signal_introspect::DeliveryTraceKey`. The first three fields
 (`engine`, `message_identifier`, `originator`) join one delivery chain;
 `hop_index` orders the events. Tests should insert events out of order
 and query them back through `IntrospectionRoot`, not by opening the

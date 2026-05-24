@@ -10,7 +10,7 @@ use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
     SessionEpoch, SignalVerb, SubReply,
 };
-use signal_persona_introspect::{
+use signal_introspect::{
     ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };

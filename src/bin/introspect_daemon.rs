@@ -1,7 +1,7 @@
+use introspect::Result;
+use introspect::daemon::IntrospectionDaemon;
 use nota_config::ConfigurationSource;
-use persona_introspect::Result;
-use persona_introspect::daemon::IntrospectionDaemon;
-use signal_persona_introspect::IntrospectDaemonConfiguration;
+use signal_introspect::IntrospectDaemonConfiguration;
 
 fn main() -> Result<()> {
     let configuration: IntrospectDaemonConfiguration =

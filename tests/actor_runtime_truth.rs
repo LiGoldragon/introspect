@@ -2,15 +2,15 @@ use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 
-use persona_introspect::runtime::{
+use introspect::runtime::{
     ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
-use persona_introspect::store::StoreLocation;
+use introspect::store::StoreLocation;
 use signal_core::{
     AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
+use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
 use signal_persona_origin::EngineIdentifier;
 use signal_persona_router::{
     RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummary,

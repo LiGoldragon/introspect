@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::io::Write;
 
 use kameo::error::SendError;
-use signal_persona_introspect::{IntrospectionRequest, PrototypeWitnessQuery};
+use signal_introspect::{IntrospectionRequest, PrototypeWitnessQuery};
 use signal_persona_origin::EngineIdentifier;
 
 use crate::daemon::IntrospectionSocket;

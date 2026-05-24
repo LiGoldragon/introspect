@@ -1,5 +1,5 @@
 {
-  description = "persona-introspect - Persona inspection-plane daemon and CLI";
+  description = "introspect - Persona inspection-plane daemon and CLI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -95,7 +95,7 @@
           );
         };
         devShells.default = pkgs.mkShell {
-          name = "persona-introspect";
+          name = "introspect";
           packages = [
             pkgs.jujutsu
             pkgs.pkg-config

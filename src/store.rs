@@ -9,7 +9,7 @@ use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
     SnapshotIdentifier, TableDescriptor, TableName, TableReference,
 };
-use signal_persona_introspect::{
+use signal_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
     IntrospectionReply, IntrospectionRequest,
 };
@@ -42,7 +42,7 @@ impl StoreLocation {
             Some(path) => Self::new(path),
             None => match std::env::var_os("PERSONA_STATE_PATH") {
                 Some(path) => Self::new(path),
-                None => Self::new("/tmp/persona-introspect.redb"),
+                None => Self::new("/tmp/introspect.redb"),
             },
         }
     }

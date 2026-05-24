@@ -6,12 +6,12 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nota_codec::{Encoder, NotaEncode};
-use persona_introspect::{
+use introspect::{
     SupervisionFrameCodec,
     daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
     store::StoreLocation,
 };
+use nota_codec::{Encoder, NotaEncode};
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
     RequestRejectionReason, SessionEpoch, SignalVerb,
@@ -20,17 +20,17 @@ use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
     LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
 };
+use signal_introspect::{
+    ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
+    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
+    IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
+};
 use signal_persona::engine_management::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
     Query as SupervisionQuery, Reply as SupervisionReply,
 };
 use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
-};
-use signal_persona_introspect::{
-    ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
-    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
-    IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona_origin::{OwnerIdentity, UnixUserId};
@@ -100,7 +100,7 @@ fn introspection_frame_codec_rejects_mismatched_signal_verb() {
 
     assert!(matches!(
         error,
-        persona_introspect::Error::UnexpectedSignalFrame { got }
+        introspect::Error::UnexpectedSignalFrame { got }
             if got == RequestRejectionReason::VerbPayloadMismatch { index: 0 }.to_string()
     ));
 }
@@ -161,10 +161,10 @@ fn daemon_answers_component_supervision_relation() {
     text.push('\n');
     std::fs::write(&configuration_path, text).expect("write config");
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_persona-introspect-daemon"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_introspect-daemon"))
         .arg(&configuration_path)
         .spawn()
-        .expect("persona-introspect-daemon starts");
+        .expect("introspect-daemon starts");
 
     wait_for_socket(&supervision_socket);
     let mode = std::fs::metadata(&supervision_socket)
@@ -180,7 +180,7 @@ fn daemon_answers_component_supervision_relation() {
     write_supervision_request(
         &mut stream,
         SupervisionRequest::Announce(Presence {
-            expected_component: ComponentName::new("persona-introspect"),
+            expected_component: ComponentName::new("introspect"),
             expected_kind: ComponentKind::Introspect,
             engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
         }),
@@ -188,14 +188,14 @@ fn daemon_answers_component_supervision_relation() {
     assert!(matches!(
         codec.read_reply(&mut stream).expect("identity reply"),
         SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "persona-introspect"
+            if identity.name.as_str() == "introspect"
                 && identity.kind == ComponentKind::Introspect
     ));
 
     write_supervision_request(
         &mut stream,
         SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
-            "persona-introspect",
+            "introspect",
         ))),
     );
     assert!(matches!(
@@ -206,7 +206,7 @@ fn daemon_answers_component_supervision_relation() {
     write_supervision_request(
         &mut stream,
         SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
-            "persona-introspect",
+            "introspect",
         ))),
     );
     assert!(matches!(

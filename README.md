@@ -1,4 +1,4 @@
-# persona-introspect
+# introspect
 
 Persona inspection-plane daemon and CLI.
 

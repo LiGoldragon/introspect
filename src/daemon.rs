@@ -9,7 +9,7 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_introspect::{
+use signal_introspect::{
     IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
     IntrospectionReply, IntrospectionRequest,
 };
@@ -105,7 +105,7 @@ impl IntrospectionDaemon {
         Self {
             socket,
             targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::new("/tmp/persona-introspect.redb"),
+            store: StoreLocation::new("/tmp/introspect.redb"),
             socket_mode: None,
             supervision: None,
         }
@@ -138,10 +138,7 @@ impl IntrospectionDaemon {
         let supervision = self.supervision.clone();
         let bound = self.bind()?;
         let _supervision = supervision.map(SupervisionListener::spawn).transpose()?;
-        eprintln!(
-            "persona-introspect-daemon socket={}",
-            bound.socket.display()
-        );
+        eprintln!("introspect-daemon socket={}", bound.socket.display());
         bound.serve_forever()
     }
 

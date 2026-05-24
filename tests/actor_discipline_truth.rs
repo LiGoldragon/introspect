@@ -1,4 +1,4 @@
-//! Architectural-truth witnesses for persona-introspect's actor
+//! Architectural-truth witnesses for introspect's actor
 //! discipline.
 //!
 //! - Public actor nouns are data-bearing — `mem::size_of::<X>() > 0`.
@@ -12,12 +12,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use persona_introspect::runtime::{
+use introspect::runtime::{
     IntrospectionRoot, ManagerClient, NotaProjection, QueryPlanner, RouterClient, TargetDirectory,
     TerminalClient,
 };
-use persona_introspect::store::IntrospectionStore;
-use persona_introspect::supervision::SupervisionPhase;
+use introspect::store::IntrospectionStore;
+use introspect::supervision::SupervisionPhase;
 
 #[test]
 fn public_actor_nouns_carry_data() {
