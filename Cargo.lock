@@ -257,7 +257,7 @@ dependencies = [
  "signal-introspect",
  "signal-persona",
  "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
- "signal-persona-router",
+ "signal-router",
  "tempfile",
  "thiserror",
  "tokio",
@@ -735,9 +735,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-persona-router"
+name = "signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-router.git?branch=main#a037fa2d1e06f5c74bfa813406fc194a78b12df7"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#f554389d1a0e073df4e2e56194d0bfec2f212d37"
 dependencies = [
  "nota-codec",
  "nota-config",

@@ -316,13 +316,13 @@ fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
     let manifest = std::fs::read_to_string(&manifest_path).expect("manifest reads");
 
     assert!(
-        manifest.contains("signal-persona-router"),
+        manifest.contains("signal-router"),
         "RouterClient must speak the router observation contract through \
-         signal-persona-router rather than inventing a local copy"
+         signal-router rather than inventing a local copy"
     );
 
     for forbidden in [
-        "persona-router",
+        "router",
         "persona-terminal",
         "persona-message",
         "persona-mind",

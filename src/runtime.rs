@@ -15,9 +15,7 @@ use signal_introspect::{
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
 use signal_persona_origin::EngineIdentifier;
-use signal_persona_router::{
-    RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummaryQuery,
-};
+use signal_router::{RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummaryQuery};
 
 use crate::error::{Error, Result};
 use crate::store::{

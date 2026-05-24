@@ -24,7 +24,7 @@ fact.
   `IntrospectionRoot` to that peer. `RouterClient` is the first
   live client: when a router socket is configured,
   `prototype_witness()` sends `RouterRequest::Summary` over a
-  length-prefixed `signal-persona-router` frame and composes the
+  length-prefixed `signal-router` frame and composes the
   typed reply into `PrototypeWitness.router_seen`. `ManagerClient`
   and `TerminalClient` remain scaffolds until their peer observation
   contracts and daemon ingress paths land.
@@ -138,7 +138,7 @@ The remaining work:
 
   `RouterClient` is the first wired client. The router daemon
   accepts `signal-message` frames for message ingress and
-  `signal-persona-router::RouterFrame` Match frames for read-side
+  `signal-router::RouterFrame` Match frames for read-side
   observation. The router observation plane (Kameo
   `RouterObservationPlane`) answers `RouterRequest::Summary`,
   `RouterRequest::MessageTrace`, and `RouterRequest::ChannelState`.

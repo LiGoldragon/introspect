@@ -33,7 +33,7 @@ signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 signal-persona-origin       = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
 signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
-signal-persona-router     = { git = "https://github.com/LiGoldragon/signal-persona-router.git", branch = "main" }
+signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 thiserror                 = "2"
 tokio                     = { version = "1", features = ["rt-multi-thread"] }
 

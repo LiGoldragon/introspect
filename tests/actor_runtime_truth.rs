@@ -12,9 +12,7 @@ use signal_core::{
 };
 use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
 use signal_persona_origin::EngineIdentifier;
-use signal_persona_router::{
-    RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummary,
-};
+use signal_router::{RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummary};
 
 fn read_router_frame(stream: &mut UnixStream) -> RouterFrame {
     let mut prefix = [0_u8; 4];
