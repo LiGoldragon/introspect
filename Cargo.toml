@@ -26,7 +26,6 @@ nota-codec                = { git = "https://github.com/LiGoldragon/nota-codec.g
 rkyv                      = "0.8"
 sema                      = { git = "https://github.com/LiGoldragon/sema.git" }
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git" }
-signal-core               = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-engine-management  = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }

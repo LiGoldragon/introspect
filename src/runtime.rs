@@ -6,9 +6,8 @@ use std::time::Duration;
 use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible, SendError};
 use kameo::message::{Context, Message};
-use signal_core::{
-    AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload,
-    SessionEpoch, SignalVerb, SubReply,
+use signal_frame::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
 };
 use signal_introspect::{
     ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
@@ -477,31 +476,21 @@ fn router_summary_readiness(
 ) -> Result<Option<ComponentReadiness>> {
     match frame.into_body() {
         RouterFrameBody::Reply { reply, .. } => match reply {
-            Reply::Accepted {
-                outcome: AcceptedOutcome::Completed,
-                per_operation,
-            } => match per_operation.into_head() {
-                SubReply::Ok {
-                    verb: SignalVerb::Match,
-                    payload: RouterReply::Summary(summary),
-                } => {
+            Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                SubReply::Ok(RouterReply::Summary(summary)) => {
                     if summary.engine == expected_engine {
                         Ok(Some(ComponentReadiness::Ready))
                     } else {
                         Ok(Some(ComponentReadiness::NotReady))
                     }
                 }
-                SubReply::Ok {
-                    payload: RouterReply::Unimplemented(_),
-                    ..
-                } => Ok(None),
+                SubReply::Ok(RouterReply::Unimplemented(_)) => Ok(None),
                 other => Err(Error::UnexpectedRouterObservationReply {
                     got: format!("{other:?}"),
                 }),
             },
-            Reply::Rejected { reason } => Err(Error::RouterObservationRejected { reason }),
-            other => Err(Error::UnexpectedRouterObservationReply {
-                got: format!("{other:?}"),
+            Reply::Rejected { reason } => Err(Error::UnexpectedRouterObservationReply {
+                got: reason.to_string(),
             }),
         },
         other => Err(Error::UnexpectedRouterObservationReply {

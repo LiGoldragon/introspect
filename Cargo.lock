@@ -250,7 +250,6 @@ dependencies = [
  "rkyv",
  "sema",
  "sema-engine",
- "signal-core",
  "signal-engine-management",
  "signal-frame",
  "signal-introspect",
@@ -758,12 +757,12 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#f554389d1a0e073df4e2e56194d0bfec2f212d37"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#3732495560b7d32a936ca8a4eee5fff1b0286ef3"
 dependencies = [
  "nota-codec",
  "nota-config",
  "rkyv",
- "signal-core",
+ "signal-frame",
  "signal-message",
  "signal-persona",
  "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",

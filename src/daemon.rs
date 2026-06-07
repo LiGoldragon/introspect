@@ -301,16 +301,10 @@ impl IntrospectionFrameCodec {
                 let (request, tail) = request.payloads.into_head_and_tail();
                 if !tail.is_empty() {
                     return Err(Error::UnexpectedSignalFrame {
-                        got: format!(
-                            "expected one introspection payload, got {}",
-                            tail.len() + 1
-                        ),
+                        got: format!("expected one introspection payload, got {}", tail.len() + 1),
                     });
                 }
-                Ok(ReceivedIntrospectionRequest {
-                    exchange,
-                    request,
-                })
+                Ok(ReceivedIntrospectionRequest { exchange, request })
             }
             other => Err(Error::UnexpectedSignalFrame {
                 got: format!("{other:?}"),

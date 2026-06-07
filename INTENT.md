@@ -19,15 +19,15 @@ keyed by the introspection-owned `DeliveryTraceKey`.
 Key constraints: every live observation crosses a component daemon boundary — peer state
 is reached only through peer daemon sockets and component contracts, **never by opening
 another component's database file**. The daemon consumes `introspect.sema` exclusively through
-`sema-engine`; there are no direct `redb` or `sema::open_with_schema` calls in this repo.
+`sema-engine`; there are no direct raw-redb or `sema::open_with_schema` calls in this repo.
 `introspect-daemon` starts from one signal-encoded rkyv
 `IntrospectDaemonConfiguration` file. Inline NOTA and `.nota`
 configuration files are CLI/authoring surfaces only and are rejected by
 the daemon entrypoint.
 NOTA renders only at the human/agent edge — the CLI and projection surface — never on the
 inter-component wire, where typed Signal replies travel. Peer observation is push
-subscription when the peer stream exists; a one-shot Match query is allowed only as an
-explicit prototype witness path, never as a timer loop — consumers do not poll.
+subscription when the peer stream exists; a one-shot observation query is allowed only as
+an explicit prototype witness path, never as a timer loop — consumers do not poll.
 `DeliveryTraceKey` is introspection-domain state (engine, message identifier, originator,
 hop index), distinct from Signal exchange identity and request/reply correlation. Component
 observations stay component-owned: `signal-introspect` wraps and correlates; per-component

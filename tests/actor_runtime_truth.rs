@@ -6,9 +6,8 @@ use introspect::runtime::{
     ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use introspect::store::StoreLocation;
-use signal_core::{
-    AcceptedOutcome, ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch,
-    SignalVerb, SubReply,
+use signal_frame::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch, SubReply,
 };
 use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
 use signal_persona_origin::EngineIdentifier;
@@ -75,32 +74,23 @@ fn prototype_witness_queries_live_router_summary_socket() {
         let frame = read_router_frame(&mut stream);
         match frame.into_body() {
             RouterFrameBody::Request { request, .. } => {
-                let operation = request
-                    .into_checked()
-                    .expect("request passes structural checks")
-                    .operations
-                    .into_head();
-                assert_eq!(operation.verb, SignalVerb::Match);
-                assert!(matches!(operation.payload, RouterRequest::Summary(_)));
+                let payload = request.payloads.into_head();
+                assert!(matches!(payload, RouterRequest::Summary(_)));
             }
             other => panic!("expected router request frame, got {other:?}"),
         }
 
         let reply = RouterFrame::new(RouterFrameBody::Reply {
             exchange: exchange(),
-            reply: Reply::Accepted {
-                outcome: AcceptedOutcome::Completed,
-                per_operation: NonEmpty::single(SubReply::Ok {
-                    verb: SignalVerb::Match,
-                    payload: RouterReply::Summary(RouterSummary {
-                        engine: EngineIdentifier::new("prototype"),
-                        accepted_messages: 0,
-                        routed_messages: 0,
-                        deferred_messages: 0,
-                        failed_messages: 0,
-                    }),
-                }),
-            },
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(RouterReply::Summary(
+                RouterSummary {
+                    engine: EngineIdentifier::new("prototype"),
+                    accepted_messages: 0,
+                    routed_messages: 0,
+                    deferred_messages: 0,
+                    failed_messages: 0,
+                },
+            )))),
         });
         stream
             .write_all(

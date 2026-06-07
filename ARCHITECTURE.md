@@ -64,8 +64,8 @@ This component does not own:
 
 Every live observation crosses a component daemon boundary. Peer state
 is reached only through peer daemon sockets and component contracts —
-**never by opening peer database files**. Offline redb readers, if they ever
-exist, are separate debug tools.
+**never by opening peer database files**. Offline store readers, if they
+ever exist, are separate debug tools.
 
 `introspect` depends on `sema-engine` for its own
 `introspect.sema`. That is a one-way dependency; `sema-engine`
@@ -106,7 +106,7 @@ graph TD
 | The daemon applies the managed spawn-envelope socket mode. | `checks.*.test-daemon-applies-spawn-envelope-socket-mode`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-introspect`; target observation records come from each peer's `signal-persona-*` contract. |
 | Every `IntrospectionRequest` variant arrives as a contract-local operation head. | `signal-introspect` declares the operation heads and the daemon codec accepts one typed `signal-frame` payload per request. Sema classification remains daemon-internal. |
-| Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot `Match` query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` Match frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
+| Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot router observation query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 | `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records matching and nonmatching events, range-queries by the join key, and reads back only the four matching hops ordered by `hop_index`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
@@ -136,11 +136,11 @@ The remaining work:
 
   `RouterClient` is the first wired client. The router daemon
   accepts `signal-message` frames for message ingress and
-  `signal-router::RouterFrame` Match frames for read-side
+  `signal-router::RouterFrame` observation frames for read-side
   observation. The router observation plane (Kameo
   `RouterObservationPlane`) answers `RouterRequest::Summary`,
   `RouterRequest::MessageTrace`, and `RouterRequest::ChannelState`.
-  `RouterClient` sends a real `RouterFrame` Match request for
+  `RouterClient` sends a real `RouterFrame` observation request for
   `RouterSummaryQuery`, parses the typed `RouterSummary`
   reply, and `prototype_witness()` composes the result into
   `PrototypeWitness.router_seen` as `Some(ComponentReadiness::Ready)`
