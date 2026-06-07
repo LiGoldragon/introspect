@@ -16,6 +16,7 @@ use signal_engine_management::{
     Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
     Presence, Query as SupervisionQuery, Reply as SupervisionReply,
 };
+use signal_engine_management::{SocketMode as WireSocketMode, WirePath};
 use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
     LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
@@ -25,7 +26,6 @@ use signal_introspect::{
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
     PrototypeWitnessQuery,
 };
-use signal_persona::{SocketMode as WireSocketMode, WirePath};
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona_origin::{OwnerIdentity, UnixUserIdentifier};
 

@@ -39,7 +39,7 @@ impl IntrospectCommandLine {
     fn input(&self) -> Result<Input> {
         match self.arguments.as_slice() {
             [] => Ok(Input::PrototypeWitness(crate::surface::PrototypeWitness {
-                engine: "prototype".to_string(),
+                engine: EngineIdentifier::new("prototype"),
             })),
             [text] => Input::from_nota(&text.to_string_lossy()),
             [_, extra, ..] => Err(Error::UnexpectedArgument {
@@ -56,7 +56,7 @@ impl IntrospectCommandLine {
                 }
             };
             let reply = socket.client().submit(request)?;
-            writeln!(output, "{}", Output::from_signal(reply).to_nota()?)?;
+            writeln!(output, "{}", Output::from_signal(reply).to_nota())?;
             return Ok(());
         }
 
@@ -83,7 +83,7 @@ impl IntrospectCommandLine {
                 });
             }
         };
-        writeln!(output, "{}", Output::from_signal(reply).to_nota()?)?;
+        writeln!(output, "{}", Output::from_signal(reply).to_nota())?;
         Ok(())
     }
 }

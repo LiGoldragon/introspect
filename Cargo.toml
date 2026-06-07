@@ -22,14 +22,13 @@ path = "src/bin/introspect_daemon.rs"
 
 [dependencies]
 kameo                     = { version = "0.20", default-features = false, features = ["macros"] }
-nota-codec                = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
+nota-next                 = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 rkyv                      = "0.8"
 sema                      = { git = "https://github.com/LiGoldragon/sema.git" }
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git" }
 signal-engine-management  = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git" }
-signal-persona-origin       = { git = "https://github.com/LiGoldragon/signal-persona-origin.git" }
+signal-persona-origin     = { git = "https://github.com/LiGoldragon/signal-persona-origin.git", branch = "main" }
 signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
 signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 thiserror                 = "2"

@@ -70,14 +70,15 @@ impl IntrospectDaemonConfigurationFile {
             path: self.path.clone(),
             source,
         })?;
-        rkyv::from_bytes::<IntrospectDaemonConfiguration, rkyv::rancor::Error>(&bytes)
+        IntrospectDaemonConfiguration::from_rkyv_bytes(bytes.as_slice())
             .map_err(|_| Error::ConfigurationArchiveDecode)
     }
 
     pub fn write_configuration(&self, configuration: &IntrospectDaemonConfiguration) -> Result<()> {
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(configuration)
+        let bytes = configuration
+            .to_rkyv_bytes()
             .map_err(|_| Error::ConfigurationArchiveEncode)?;
-        std::fs::write(&self.path, bytes.as_ref()).map_err(|source| Error::ConfigurationWrite {
+        std::fs::write(&self.path, bytes.as_slice()).map_err(|source| Error::ConfigurationWrite {
             path: self.path.clone(),
             source,
         })
