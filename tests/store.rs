@@ -100,11 +100,11 @@ fn introspection_source_does_not_open_peer_component_database_files() {
 
     for forbidden in [
         "redb::Database::open",
-        "router.redb",
-        "terminal.redb",
-        "mind.redb",
-        "message.redb",
-        "harness.redb",
+        "router.sema",
+        "terminal.sema",
+        "mind.sema",
+        "message.sema",
+        "harness.sema",
     ] {
         assert!(
             !source.contains(forbidden),
@@ -321,14 +321,7 @@ fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
          signal-router rather than inventing a local copy"
     );
 
-    for forbidden in [
-        "router",
-        "persona-terminal",
-        "persona-message",
-        "persona-mind",
-        "persona-harness",
-        "persona-system",
-    ] {
+    for forbidden in ["router", "terminal", "message", "mind", "harness", "system"] {
         let direct_dependency_present = manifest
             .lines()
             .filter_map(|line| {

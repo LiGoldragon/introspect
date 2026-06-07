@@ -568,7 +568,7 @@ dependencies = [
 [[package]]
 name = "sema"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/sema.git#4ea561bc53f6aa38fb71a7570665d57191fce0ea"
+source = "git+https://github.com/LiGoldragon/sema.git#09f2a423ecaaa9984d913e6f009aa346280a29bd"
 dependencies = [
  "redb",
  "rkyv",
@@ -578,11 +578,11 @@ dependencies = [
 [[package]]
 name = "sema-engine"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git#67ac34a9d6625033904bc4ee7083ca9f4149f6a6"
+source = "git+https://github.com/LiGoldragon/sema-engine.git#f6f0e03dc039c1f7731974245afa536a62db8d8c"
 dependencies = [
  "rkyv",
  "sema",
- "signal-core",
+ "signal-frame",
  "signal-sema",
  "thiserror",
 ]
@@ -634,27 +634,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "signal-core"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#3f10055aa281aa3e5c8c38312f961516e4470ad3"
-dependencies = [
- "nota-codec",
- "rkyv",
- "signal-core-macros",
- "thiserror",
-]
-
-[[package]]
-name = "signal-core-macros"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#3f10055aa281aa3e5c8c38312f961516e4470ad3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
