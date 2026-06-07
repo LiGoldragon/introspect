@@ -22,8 +22,6 @@ pub enum Error {
     SignalFrame(#[from] signal_frame::FrameError),
     #[error("sema-engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
-    #[error("sema: {0}")]
-    Sema(#[from] sema::Error),
     #[error("nota decode: {0}")]
     Nota(#[from] nota_next::NotaDecodeError),
     #[error("io: {0}")]

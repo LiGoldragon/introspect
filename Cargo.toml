@@ -24,8 +24,7 @@ path = "src/bin/introspect_daemon.rs"
 kameo                     = { version = "0.20", default-features = false, features = ["macros"] }
 nota-next                 = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 rkyv                      = "0.8"
-sema                      = { git = "https://github.com/LiGoldragon/sema.git" }
-sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git" }
+sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-engine-management  = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona-origin     = { git = "https://github.com/LiGoldragon/signal-persona-origin.git", branch = "main" }

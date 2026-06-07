@@ -4,10 +4,9 @@ use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use sema::SchemaVersion;
 use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
-    SnapshotIdentifier, TableDescriptor, TableName, TableReference,
+    SchemaVersion, SnapshotIdentifier, TableDescriptor, TableName, TableReference,
 };
 use signal_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,

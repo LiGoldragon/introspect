@@ -242,7 +242,6 @@ dependencies = [
  "kameo",
  "nota-next",
  "rkyv",
- "sema",
  "sema-engine",
  "signal-engine-management",
  "signal-frame",
@@ -541,7 +540,7 @@ dependencies = [
 [[package]]
 name = "sema-engine"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git#e94897338a3c81fe2867a77f380aab77a3bb0874"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#fdd7529d96487b509c2a68f62c1b7bdb3a67cff9"
 dependencies = [
  "rkyv",
  "sema",
