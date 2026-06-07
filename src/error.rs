@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,6 +32,20 @@ pub enum Error {
     Nota(#[from] nota_codec::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("nota-config: {0}")]
-    NotaConfig(#[from] nota_config::Error),
+    #[error("argument: {0}")]
+    Argument(#[from] triad_runtime::ArgumentError),
+    #[error("configuration archive decode failed")]
+    ConfigurationArchiveDecode,
+    #[error("configuration archive encode failed")]
+    ConfigurationArchiveEncode,
+    #[error("configuration read failed at {path}: {source}")]
+    ConfigurationRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("configuration write failed at {path}: {source}")]
+    ConfigurationWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }

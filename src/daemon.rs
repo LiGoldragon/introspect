@@ -75,8 +75,8 @@ pub struct IntrospectionDaemon {
 
 impl IntrospectionDaemon {
     /// Canonical constructor — every production launch reads typed
-    /// `IntrospectDaemonConfiguration` from argv via `nota-config` and
-    /// hands the record here.
+    /// `IntrospectDaemonConfiguration` from a signal-encoded archive
+    /// and hands the record here.
     pub fn from_configuration(configuration: IntrospectDaemonConfiguration) -> Self {
         let targets = TargetSocketDirectory {
             manager_socket: Some(PathBuf::from(configuration.manager_socket_path.as_str())),
@@ -105,7 +105,7 @@ impl IntrospectionDaemon {
         Self {
             socket,
             targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::new("/tmp/introspect.redb"),
+            store: StoreLocation::new("/tmp/introspect.sema"),
             socket_mode: None,
             supervision: None,
         }

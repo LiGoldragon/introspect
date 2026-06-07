@@ -40,7 +40,7 @@ fn prototype_witness_uses_introspection_root_actor() {
     let root = runtime
         .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
             targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::new(directory.path().join("introspect.redb")),
+            store: StoreLocation::new(directory.path().join("introspect.sema")),
         }))
         .expect("root starts");
     let reply = runtime
@@ -120,7 +120,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
                 router_socket: Some(router_socket),
                 terminal_socket: None,
             },
-            store: StoreLocation::new(directory.path().join("introspect.redb")),
+            store: StoreLocation::new(directory.path().join("introspect.sema")),
         }))
         .expect("root starts");
     let reply = runtime

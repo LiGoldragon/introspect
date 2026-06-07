@@ -12,14 +12,18 @@ observations as pushed subscription deltas. Each peer relationship is owned by o
 actor (`RouterClient`, `ManagerClient`, `TerminalClient`) that holds that peer's socket
 path and speaks only that peer's observation contract. `RouterClient` is the first live
 client; the others are honest scaffolds until their peer contracts and daemon ingress
-land. The daemon owns its own typed `introspect.redb` through `sema-engine`, persisting
+land. The daemon owns its own typed `introspect.sema` through `sema-engine`, persisting
 the query/reply/error audit trail, subscription registrations, and a delivery-trace cache
 keyed by the introspection-owned `DeliveryTraceKey`.
 
 Key constraints: every live observation crosses a component daemon boundary — peer state
 is reached only through peer daemon sockets and component contracts, **never by opening
-another component's redb file**. The daemon consumes `introspect.redb` exclusively through
+another component's database file**. The daemon consumes `introspect.sema` exclusively through
 `sema-engine`; there are no direct `redb` or `sema::open_with_schema` calls in this repo.
+`introspect-daemon` starts from one signal-encoded rkyv
+`IntrospectDaemonConfiguration` file. Inline NOTA and `.nota`
+configuration files are CLI/authoring surfaces only and are rejected by
+the daemon entrypoint.
 NOTA renders only at the human/agent edge — the CLI and projection surface — never on the
 inter-component wire, where typed Signal replies travel. Peer observation is push
 subscription when the peer stream exists; a one-shot Match query is allowed only as an

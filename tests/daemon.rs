@@ -7,11 +7,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use introspect::{
-    SupervisionFrameCodec,
+    IntrospectDaemonCommand, IntrospectDaemonConfigurationFile, SupervisionFrameCodec,
     daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
     store::StoreLocation,
 };
-use nota_codec::{Encoder, NotaEncode};
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
     RequestRejectionReason, SessionEpoch, SignalVerb,
@@ -30,6 +29,7 @@ use signal_introspect::{
     IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
+use signal_persona::{SocketMode as WireSocketMode, WirePath};
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona_origin::{OwnerIdentity, UnixUserIdentifier};
 
@@ -38,7 +38,7 @@ fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
     let socket = directory.path().join("introspect.sock");
     let bound = IntrospectionDaemon::from_socket(socket.clone())
         .with_socket_mode(SocketMode::from_octal(0o600))
-        .with_store(StoreLocation::new(directory.path().join("introspect.redb")))
+        .with_store(StoreLocation::new(directory.path().join("introspect.sema")))
         .bind()
         .expect("daemon binds");
     assert_eq!(
@@ -65,7 +65,7 @@ fn daemon_applies_spawn_envelope_socket_mode() {
     let socket = directory.path().join("introspect.sock");
     let bound = IntrospectionDaemon::from_socket(socket)
         .with_socket_mode(SocketMode::from_octal(0o600))
-        .with_store(StoreLocation::new(directory.path().join("introspect.redb")))
+        .with_store(StoreLocation::new(directory.path().join("introspect.sema")))
         .bind()
         .expect("daemon binds");
 
@@ -126,38 +126,52 @@ fn daemon_serves_prototype_witness_over_signal_socket() {
 }
 
 #[test]
-fn daemon_answers_component_supervision_relation() {
-    use signal_persona::{SocketMode as WireSocketMode, WirePath};
+fn daemon_configuration_accepts_binary_file_argument() {
     let directory = tempfile::tempdir().expect("tempdir");
     let socket = directory.path().join("introspect.sock");
     let supervision_socket = directory.path().join("supervision.sock");
-    let store_path = directory.path().join("introspect.redb");
-    let configuration_path = directory.path().join("introspect-daemon.nota");
+    let configuration_path = directory.path().join("introspect-daemon.rkyv");
+    let configuration = daemon_configuration(directory.path(), &socket, &supervision_socket);
 
-    let configuration = IntrospectDaemonConfiguration {
-        introspect_socket_path: WirePath::new(socket.display().to_string()),
-        introspect_socket_mode: WireSocketMode::new(0o600),
-        supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
-        supervision_socket_mode: WireSocketMode::new(0o600),
-        store_path: WirePath::new(store_path.display().to_string()),
-        manager_socket_path: WirePath::new(
-            directory.path().join("persona.sock").display().to_string(),
-        ),
-        router_socket_path: WirePath::new(
-            directory.path().join("router.sock").display().to_string(),
-        ),
-        terminal_socket_path: WirePath::new(
-            directory.path().join("terminal.sock").display().to_string(),
-        ),
-        owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
-    };
-    let mut encoder = Encoder::new();
-    configuration
-        .encode(&mut encoder)
-        .expect("encode introspect config");
-    let mut text = encoder.into_string();
-    text.push('\n');
-    std::fs::write(&configuration_path, text).expect("write config");
+    IntrospectDaemonConfigurationFile::new(&configuration_path)
+        .write_configuration(&configuration)
+        .expect("write binary introspect config");
+
+    let decoded =
+        IntrospectDaemonCommand::from_arguments([configuration_path.display().to_string()])
+            .configuration()
+            .expect("read binary introspect config");
+
+    assert_eq!(decoded, configuration);
+}
+
+#[test]
+fn daemon_configuration_rejects_nota_arguments() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let nota_path = directory.path().join("introspect-daemon.nota");
+    std::fs::write(&nota_path, "(IntrospectDaemonConfiguration)").expect("write nota fixture");
+
+    let inline = IntrospectDaemonCommand::from_arguments(["(IntrospectDaemonConfiguration)"])
+        .configuration()
+        .expect_err("inline NOTA is rejected");
+    let file = IntrospectDaemonCommand::from_arguments([nota_path.display().to_string()])
+        .configuration()
+        .expect_err(".nota file is rejected");
+
+    assert!(matches!(inline, introspect::Error::Argument(_)));
+    assert!(matches!(file, introspect::Error::Argument(_)));
+}
+
+#[test]
+fn daemon_answers_component_supervision_relation() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let socket = directory.path().join("introspect.sock");
+    let supervision_socket = directory.path().join("supervision.sock");
+    let configuration_path = directory.path().join("introspect-daemon.rkyv");
+    let configuration = daemon_configuration(directory.path(), &socket, &supervision_socket);
+    IntrospectDaemonConfigurationFile::new(&configuration_path)
+        .write_configuration(&configuration)
+        .expect("write binary introspect config");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_introspect-daemon"))
         .arg(&configuration_path)
@@ -322,4 +336,22 @@ fn wait_for_socket(socket: &Path) {
 fn stop_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn daemon_configuration(
+    directory: &Path,
+    socket: &Path,
+    supervision_socket: &Path,
+) -> IntrospectDaemonConfiguration {
+    IntrospectDaemonConfiguration {
+        introspect_socket_path: WirePath::new(socket.display().to_string()),
+        introspect_socket_mode: WireSocketMode::new(0o600),
+        supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
+        supervision_socket_mode: WireSocketMode::new(0o600),
+        store_path: WirePath::new(directory.join("introspect.sema").display().to_string()),
+        manager_socket_path: WirePath::new(directory.join("persona.sock").display().to_string()),
+        router_socket_path: WirePath::new(directory.join("router.sock").display().to_string()),
+        terminal_socket_path: WirePath::new(directory.join("terminal.sock").display().to_string()),
+        owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
+    }
 }

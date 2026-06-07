@@ -30,7 +30,7 @@ fact.
   contracts and daemon ingress paths land.
 - Fan-out to component daemons over Signal.
 - Fan-in of typed observations as pushed subscription deltas.
-- **`introspect.redb`** — introspect's own typed database,
+- **`introspect.sema`** — introspect's own typed database,
   consumed through `sema-engine`. Stores: query/reply/error audit
   trail (landed); subscription registrations; delivery trace
   cache keyed by `DeliveryTraceKey` (landed), populated today by
@@ -56,10 +56,7 @@ events by `hop_index`.
 
 This component does not own:
 
-- `mind.redb`
-- `router.redb`
-- `terminal.redb`
-- other peer component databases
+- peer component database files
 - component row definitions
 - router policy
 - terminal delivery policy
@@ -67,11 +64,11 @@ This component does not own:
 
 Every live observation crosses a component daemon boundary. Peer state
 is reached only through peer daemon sockets and component contracts —
-**never by opening peer redb files**. Offline redb readers, if they ever
+**never by opening peer database files**. Offline redb readers, if they ever
 exist, are separate debug tools.
 
 `introspect` depends on `sema-engine` for its own
-`introspect.redb`. That is a one-way dependency; `sema-engine`
+`introspect.sema`. That is a one-way dependency; `sema-engine`
 knows nothing about introspect.
 
 ## 3. Actor map
@@ -84,7 +81,7 @@ graph TD
     manager["ManagerClient"]
     router["RouterClient"]
     terminal["TerminalClient"]
-    store["IntrospectionStore<br/>(holds Engine handle to introspect.redb)"]
+    store["IntrospectionStore<br/>(holds Engine handle to introspect.sema)"]
     projection["NotaProjection"]
 
     root --> directory
@@ -100,8 +97,9 @@ graph TD
 
 | Constraint | Witness |
 |---|---|
-| The daemon does not open peer redb files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
-| The daemon consumes `introspect.redb` through `sema-engine`. | `tests/store.rs`: root-handled requests persist a typed observation record, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
+| The daemon does not open peer database files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
+| The daemon consumes `introspect.sema` through `sema-engine`. | `tests/store.rs`: root-handled requests persist a typed observation record, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
+| `introspect-daemon` starts from binary Signal configuration, not NOTA. | `tests/daemon.rs`: rkyv configuration file is accepted by the real process entrypoint; inline NOTA and `.nota` files are rejected by `IntrospectDaemonCommand`. |
 | The CLI renders NOTA only at the edge. | CLI and projection tests; component clients return typed Signal replies; no `nota-codec` usage in daemon runtime path. |
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
@@ -121,7 +119,7 @@ graph TD
 The daemon binds a Unix socket, applies the requested socket mode
 when supplied, and serves `signal-introspect` frames
 through the Kameo root. `IntrospectionStore` consumes
-`introspect.redb` via `sema-engine`; the query/reply audit trail
+`introspect.sema` via `sema-engine`; the query/reply audit trail
 is persisted as typed records through `Engine::assert`.
 
 The remaining work:

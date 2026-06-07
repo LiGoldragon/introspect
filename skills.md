@@ -22,13 +22,16 @@ Before changing code in this repo, read:
 - `introspect-daemon`
 - `introspect` CLI
 - Runtime fan-out to component daemons over Signal.
-- Local observation audit state in `introspect.redb`, opened through
+- Local observation audit state in `introspect.sema`, opened through
   `sema-engine`.
+- `introspect-daemon` starts from one signal-encoded rkyv
+  `IntrospectDaemonConfiguration` file. Inline NOTA and `.nota`
+  startup files are rejected.
 - NOTA projection at the CLI edge.
 
 ## What this repo does not own
 
-- Other components' redb files.
+- Other components' database files.
 - Router, terminal, manager, harness, message, system, or mind policy.
 - Component observation record definitions.
 

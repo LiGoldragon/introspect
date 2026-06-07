@@ -23,7 +23,7 @@ impl IntrospectionStoreFixture {
     }
 
     fn store(&self) -> StoreLocation {
-        StoreLocation::new(self.directory.path().join("introspect.redb"))
+        StoreLocation::new(self.directory.path().join("introspect.sema"))
     }
 
     fn source_root(&self) -> PathBuf {
@@ -94,7 +94,7 @@ fn introspection_root_records_observations_through_sema_engine() {
 }
 
 #[test]
-fn introspection_source_does_not_open_peer_component_redb_files() {
+fn introspection_source_does_not_open_peer_component_database_files() {
     let fixture = IntrospectionStoreFixture::new();
     let source = fixture.source_text();
 

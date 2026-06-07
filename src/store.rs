@@ -42,7 +42,7 @@ impl StoreLocation {
             Some(path) => Self::new(path),
             None => match std::env::var_os("PERSONA_STATE_PATH") {
                 Some(path) => Self::new(path),
-                None => Self::new("/tmp/introspect.redb"),
+                None => Self::new("/tmp/introspect.sema"),
             },
         }
     }
