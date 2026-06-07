@@ -8,12 +8,8 @@ use std::time::{Duration, Instant};
 
 use introspect::{
     IntrospectDaemonCommand, IntrospectDaemonConfigurationFile, SupervisionFrameCodec,
-    daemon::{IntrospectionDaemon, IntrospectionFrameCodec, IntrospectionSignalClient, SocketMode},
+    daemon::{IntrospectionDaemon, IntrospectionSignalClient, SocketMode},
     store::StoreLocation,
-};
-use signal_core::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request,
-    RequestRejectionReason, SessionEpoch, SignalVerb,
 };
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
@@ -26,8 +22,8 @@ use signal_frame::{
 };
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
-    IntrospectionFrame, IntrospectionFrameBody as FrameBody, IntrospectionReply,
-    IntrospectionRequest, IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
+    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
+    PrototypeWitnessQuery,
 };
 use signal_persona::{SocketMode as WireSocketMode, WirePath};
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
@@ -76,31 +72,6 @@ fn daemon_applies_spawn_envelope_socket_mode() {
         & 0o777;
 
     assert_eq!(mode, 0o600);
-}
-
-#[test]
-fn introspection_frame_codec_rejects_mismatched_signal_verb() {
-    let request = Request::from_operations(NonEmpty::single(Operation::new(
-        SignalVerb::Assert,
-        IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
-            engine: EngineIdentifier::new("prototype"),
-        }),
-    )));
-    let frame = IntrospectionFrame::new(FrameBody::Request {
-        exchange: test_exchange(),
-        request,
-    });
-    let bytes = frame.encode_length_prefixed().expect("frame encodes");
-    let mut input = bytes.as_slice();
-    let error = IntrospectionFrameCodec::default()
-        .read_request(&mut input)
-        .expect_err("mismatched verb is rejected");
-
-    assert!(matches!(
-        error,
-        introspect::Error::UnexpectedSignalFrame { got }
-            if got == RequestRejectionReason::VerbPayloadMismatch { index: 0 }.to_string()
-    ));
 }
 
 #[test]
@@ -311,14 +282,6 @@ fn test_frame_exchange() -> FrameExchangeIdentifier {
         FrameSessionEpoch::new(1),
         FrameExchangeLane::Connector,
         FrameLaneSequence::new(1),
-    )
-}
-
-fn test_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(1),
-        ExchangeLane::Connector,
-        LaneSequence::new(1),
     )
 }
 

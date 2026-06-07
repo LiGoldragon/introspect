@@ -23,7 +23,9 @@ pub enum Error {
         detail: String,
     },
     #[error("signal frame: {0}")]
-    SignalFrame(#[from] signal_core::FrameError),
+    SignalFrame(#[from] signal_frame::FrameError),
+    #[error("router signal frame: {0}")]
+    RouterSignalFrame(#[from] signal_core::FrameError),
     #[error("sema-engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
     #[error("sema: {0}")]

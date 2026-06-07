@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use kameo::actor::ActorRef;
 use kameo::error::SendError;
-use signal_core::{
+use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
-    SignalVerb, SubReply,
+    SubReply,
 };
 use signal_introspect::{
     IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
@@ -193,7 +193,7 @@ impl IntrospectionDaemon {
                 });
             }
         };
-        connection.write_signal_reply(request.exchange, request.verb, reply.clone())?;
+        connection.write_signal_reply(request.exchange, reply.clone())?;
         Ok(reply)
     }
 }
@@ -253,11 +253,10 @@ impl IntrospectionConnection {
     pub fn write_signal_reply(
         &mut self,
         exchange: ExchangeIdentifier,
-        verb: SignalVerb,
         reply: IntrospectionReply,
     ) -> Result<()> {
         let stream = self.stream.get_mut();
-        self.signal.write_reply(stream, exchange, verb, reply)
+        self.signal.write_reply(stream, exchange, reply)
     }
 }
 
@@ -299,24 +298,18 @@ impl IntrospectionFrameCodec {
     pub fn read_request(&self, reader: &mut impl Read) -> Result<ReceivedIntrospectionRequest> {
         match self.read_frame(reader)?.into_body() {
             FrameBody::Request { exchange, request } => {
-                let checked = request.into_checked().map_err(|(error, _request)| {
-                    Error::UnexpectedSignalFrame {
-                        got: error.to_string(),
-                    }
-                })?;
-                let (operation, tail) = checked.operations.into_head_and_tail();
+                let (request, tail) = request.payloads.into_head_and_tail();
                 if !tail.is_empty() {
                     return Err(Error::UnexpectedSignalFrame {
                         got: format!(
-                            "expected one introspection operation, got {}",
+                            "expected one introspection payload, got {}",
                             tail.len() + 1
                         ),
                     });
                 }
                 Ok(ReceivedIntrospectionRequest {
                     exchange,
-                    verb: operation.verb,
-                    request: operation.payload,
+                    request,
                 })
             }
             other => Err(Error::UnexpectedSignalFrame {
@@ -339,7 +332,7 @@ impl IntrospectionFrameCodec {
                         });
                     }
                     match sub_reply {
-                        SubReply::Ok { payload, .. } => Ok(payload),
+                        SubReply::Ok(payload) => Ok(payload),
                         other => Err(Error::UnexpectedSignalFrame {
                             got: format!("{other:?}"),
                         }),
@@ -371,15 +364,11 @@ impl IntrospectionFrameCodec {
         &self,
         writer: &mut impl Write,
         exchange: ExchangeIdentifier,
-        verb: SignalVerb,
         reply: IntrospectionReply,
     ) -> Result<()> {
         let frame = IntrospectionFrame::new(FrameBody::Reply {
             exchange,
-            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
-                verb,
-                payload: reply,
-            })),
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
         });
         self.write_frame(writer, &frame)
     }
@@ -388,7 +377,6 @@ impl IntrospectionFrameCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceivedIntrospectionRequest {
     exchange: ExchangeIdentifier,
-    verb: SignalVerb,
     request: IntrospectionRequest,
 }
 
