@@ -4,21 +4,21 @@
 //! The kameo `SupervisionPhase` actor answers the announce / readiness / health
 //! / stop relation. The emitted daemon shell owns the meta socket and accept
 //! loop; `daemon::IntrospectionDaemon::handle_meta_connection` decodes each
-//! `signal-engine-management` frame and drives this actor. The frame codec is
-//! retained for the CLI / test client side.
+//! `signal-persona` engine-management frame and drives this actor. The frame
+//! codec is retained for the CLI / test client side.
 
 use std::io::{Read, Write};
 
 use kameo::actor::{Actor, ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_engine_management::{
+use signal_frame::{ExchangeIdentifier, Reply, SubReply};
+use signal_persona::{
     ComponentHealth, ComponentHealthReport, ComponentIdentity, ComponentKind, ComponentName,
     ComponentReady, EngineManagementProtocolVersion, Frame as SupervisionFrame, FrameBody,
     Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
     Reply as SupervisionReply, StopAcknowledgement,
 };
-use signal_frame::{ExchangeIdentifier, Reply, SubReply};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisionProfile {

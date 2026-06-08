@@ -12,7 +12,7 @@ use signal_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
     IntrospectionReply, IntrospectionRequest,
 };
-use signal_persona_origin::ComponentName;
+use signal_persona::origin::ComponentName;
 
 use crate::Result;
 
@@ -339,7 +339,7 @@ fn delivery_trace_join_key_prefix(key: &DeliveryTraceJoinKey) -> String {
     format!(
         "{}/{}/{}",
         key.engine.as_str(),
-        key.message_identifier.into_u64(),
+        key.message_identifier.clone().into_u64(),
         component_name(key.originator)
     )
 }

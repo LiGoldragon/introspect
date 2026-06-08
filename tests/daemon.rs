@@ -17,12 +17,6 @@ use introspect::IntrospectionDaemonConfiguration;
 use introspect::SupervisionFrameCodec;
 use introspect::daemon::{IntrospectionDaemon, IntrospectionSignalClient};
 use introspect::schema::daemon::ComponentDaemon;
-use signal_engine_management::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
-    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
-    Reply as SupervisionReply,
-};
-use signal_engine_management::{SocketMode as WireSocketMode, WirePath};
 use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
     LaneSequence as FrameLaneSequence, SessionEpoch as FrameSessionEpoch,
@@ -32,8 +26,14 @@ use signal_introspect::{
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
     PrototypeWitnessQuery,
 };
-use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
-use signal_persona_origin::{OwnerIdentity, UnixUserIdentifier};
+use signal_persona::origin::{ComponentName as AuthComponentName, EngineIdentifier};
+use signal_persona::origin::{OwnerIdentity, UnixUserIdentifier};
+use signal_persona::{
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
+    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
+    Reply as SupervisionReply,
+};
+use signal_persona::{SocketMode as WireSocketMode, WirePath};
 
 /// A running `introspect-daemon` child with both socket paths, torn down on
 /// drop.

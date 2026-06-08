@@ -10,8 +10,11 @@ use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch, SubReply,
 };
 use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
-use signal_persona_origin::EngineIdentifier;
-use signal_router::{RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummary};
+use signal_persona::origin::EngineIdentifier;
+use signal_router::{
+    Frame as RouterFrame, FrameBody as RouterFrameBody, Input as RouterRequest,
+    Output as RouterReply, RouterSummary,
+};
 
 fn read_router_frame(stream: &mut UnixStream) -> RouterFrame {
     let mut prefix = [0_u8; 4];
@@ -86,7 +89,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
             exchange: exchange(),
             reply: Reply::committed(NonEmpty::single(SubReply::Ok(RouterReply::Summary(
                 RouterSummary {
-                    engine: EngineIdentifier::new("prototype"),
+                    engine: "prototype".to_owned(),
                     accepted_messages: 0,
                     routed_messages: 0,
                     deferred_messages: 0,

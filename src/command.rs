@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use kameo::error::SendError;
 use signal_introspect::{IntrospectionRequest, PrototypeWitnessQuery};
-use signal_persona_origin::EngineIdentifier;
+use signal_persona::origin::EngineIdentifier;
 
 use crate::daemon::IntrospectionSignalClient;
 use crate::error::{Error, Result};

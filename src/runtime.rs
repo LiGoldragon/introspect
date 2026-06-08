@@ -13,8 +13,11 @@ use signal_introspect::{
     ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
-use signal_persona_origin::EngineIdentifier;
-use signal_router::{RouterFrame, RouterFrameBody, RouterReply, RouterRequest, RouterSummaryQuery};
+use signal_persona::origin::EngineIdentifier;
+use signal_router::{
+    Frame as RouterFrame, FrameBody as RouterFrameBody, Input as RouterRequest,
+    Output as RouterReply, RouterSummaryQuery,
+};
 
 use crate::error::{Error, Result};
 use crate::store::{
@@ -381,9 +384,7 @@ impl RouterClient {
         let mut stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = RouterRequest::Summary(RouterSummaryQuery {
-            engine: engine.clone(),
-        });
+        let request = RouterRequest::Summary(RouterSummaryQuery::new(engine.as_str().to_owned()));
         let frame = RouterFrame::new(RouterFrameBody::Request {
             exchange: router_exchange(),
             request: request.into_request(),
@@ -482,7 +483,7 @@ fn router_summary_readiness(
         RouterFrameBody::Reply { reply, .. } => match reply {
             Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
                 SubReply::Ok(RouterReply::Summary(summary)) => {
-                    if summary.engine == expected_engine {
+                    if summary.engine == expected_engine.as_str() {
                         Ok(Some(ComponentReadiness::Ready))
                     } else {
                         Ok(Some(ComponentReadiness::NotReady))

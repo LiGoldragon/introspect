@@ -9,7 +9,7 @@ use signal_introspect::{
     DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
     IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
-use signal_persona_origin::{ComponentName, EngineIdentifier};
+use signal_persona::origin::{ComponentName, EngineIdentifier};
 
 struct IntrospectionStoreFixture {
     directory: tempfile::TempDir,
@@ -215,7 +215,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     let events = vec![
         trace_event(
             engine.clone(),
-            message_identifier,
+            message_identifier.clone(),
             originator,
             2,
             ComponentName::Router,
@@ -223,7 +223,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         ),
         trace_event(
             engine.clone(),
-            message_identifier,
+            message_identifier.clone(),
             originator,
             0,
             ComponentName::Message,
@@ -231,7 +231,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         ),
         trace_event(
             engine.clone(),
-            message_identifier,
+            message_identifier.clone(),
             originator,
             3,
             ComponentName::Harness,
@@ -239,7 +239,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         ),
         trace_event(
             engine.clone(),
-            message_identifier,
+            message_identifier.clone(),
             originator,
             1,
             ComponentName::Mind,
@@ -258,7 +258,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         ),
         trace_event(
             engine.clone(),
-            message_identifier,
+            message_identifier.clone(),
             ComponentName::Harness,
             0,
             ComponentName::Harness,

@@ -343,7 +343,7 @@ impl SupervisionTransport {
     async fn read_request(
         &mut self,
     ) -> Result<Option<ReceivedSupervisionRequest>, IntrospectionDaemonError> {
-        use signal_engine_management::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
+        use signal_persona::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
 
         let frame_bytes = match LengthPrefixedCodec::default()
             .read_body_async(self.connection.stream_mut())
@@ -377,9 +377,9 @@ impl SupervisionTransport {
     async fn write_reply(
         &mut self,
         exchange: ExchangeIdentifier,
-        reply: signal_engine_management::Reply,
+        reply: signal_persona::Reply,
     ) -> Result<(), IntrospectionDaemonError> {
-        use signal_engine_management::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
+        use signal_persona::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
 
         let frame = SupervisionFrame::new(SupervisionBody::Reply {
             exchange,
@@ -402,7 +402,7 @@ impl SupervisionTransport {
 
 struct ReceivedSupervisionRequest {
     exchange: ExchangeIdentifier,
-    request: signal_engine_management::Operation,
+    request: signal_persona::Operation,
 }
 
 /// A blocking, in-process client for the introspection-query socket — the
