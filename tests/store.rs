@@ -52,10 +52,12 @@ fn introspection_root_records_observations_through_sema_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
-        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: TargetSocketDirectory::empty(),
-            store: fixture.store(),
-        }))
+        .block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: TargetSocketDirectory::empty(),
+                store: fixture.store(),
+            })
+        })
         .expect("root starts");
     let request = IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
         engine: EngineIdentifier::new("prototype"),
@@ -148,10 +150,12 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
     ];
 
     let root = runtime
-        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: TargetSocketDirectory::empty(),
-            store: fixture.store(),
-        }))
+        .block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: TargetSocketDirectory::empty(),
+                store: fixture.store(),
+            })
+        })
         .expect("root starts");
 
     let mut replies = Vec::with_capacity(requests.len());
@@ -198,10 +202,12 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
-        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: TargetSocketDirectory::empty(),
-            store: fixture.store(),
-        }))
+        .block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: TargetSocketDirectory::empty(),
+                store: fixture.store(),
+            })
+        })
         .expect("root starts");
     let engine = EngineIdentifier::new("prototype");
     let message_identifier = MessageIdentifier::new(7);

@@ -37,10 +37,12 @@ fn prototype_witness_uses_introspection_root_actor() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let directory = tempfile::tempdir().expect("tempdir");
     let root = runtime
-        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::new(directory.path().join("introspect.sema")),
-        }))
+        .block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: TargetSocketDirectory::empty(),
+                store: StoreLocation::new(directory.path().join("introspect.sema")),
+            })
+        })
         .expect("root starts");
     let reply = runtime
         .block_on(async {
@@ -104,14 +106,16 @@ fn prototype_witness_queries_live_router_summary_socket() {
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
-        .block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: TargetSocketDirectory {
-                manager_socket: None,
-                router_socket: Some(router_socket),
-                terminal_socket: None,
-            },
-            store: StoreLocation::new(directory.path().join("introspect.sema")),
-        }))
+        .block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: TargetSocketDirectory {
+                    manager_socket: None,
+                    router_socket: Some(router_socket),
+                    terminal_socket: None,
+                },
+                store: StoreLocation::new(directory.path().join("introspect.sema")),
+            })
+        })
         .expect("root starts");
     let reply = runtime
         .block_on(async {

@@ -52,7 +52,11 @@ pub struct IntrospectionRoot {
 }
 
 impl IntrospectionRoot {
-    pub async fn start_root(input: IntrospectionRootInput) -> Result<ActorRef<Self>> {
+    /// Spawn the introspection actor tree. The body is entirely synchronous —
+    /// kameo `spawn` and the sema-store open are sync — so the daemon shell's
+    /// `build_runtime` (a sync hook run inside the runtime's `block_on`) can
+    /// call it without a nested `block_on`.
+    pub fn spawn_root(input: IntrospectionRootInput) -> Result<ActorRef<Self>> {
         let target_directory = TargetDirectory::spawn(TargetDirectory::new(input.targets.clone()));
         let query_planner = QueryPlanner::spawn(QueryPlanner::new());
         let manager_client =

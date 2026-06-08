@@ -1,11 +1,12 @@
 use std::ffi::OsString;
 use std::io::Write;
+use std::path::PathBuf;
 
 use kameo::error::SendError;
 use signal_introspect::{IntrospectionRequest, PrototypeWitnessQuery};
 use signal_persona_origin::EngineIdentifier;
 
-use crate::daemon::IntrospectionSocket;
+use crate::daemon::IntrospectionSignalClient;
 use crate::error::{Error, Result};
 use crate::runtime::{ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput};
 use crate::store::StoreLocation;
@@ -48,23 +49,35 @@ impl IntrospectCommandLine {
         }
     }
 
+    /// The `introspect` CLI's last-resort daemon-socket discovery —
+    /// `PERSONA_INTROSPECT_SOCKET` / `PERSONA_SOCKET_PATH`. The daemon's
+    /// production launch binds the socket from its typed configuration; this is
+    /// the CLI client side only.
+    fn discovered_socket() -> Option<PathBuf> {
+        std::env::var_os("PERSONA_INTROSPECT_SOCKET")
+            .or_else(|| std::env::var_os("PERSONA_SOCKET_PATH"))
+            .map(PathBuf::from)
+    }
+
     fn run_input(&self, input: Input, mut output: impl Write) -> Result<()> {
-        if let Some(socket) = IntrospectionSocket::from_environment() {
+        if let Some(socket) = Self::discovered_socket() {
             let request = match input {
                 Input::PrototypeWitness(query) => {
                     IntrospectionRequest::PrototypeWitness(query.into_signal())
                 }
             };
-            let reply = socket.client().submit(request)?;
+            let reply = IntrospectionSignalClient::new(socket).submit(request)?;
             writeln!(output, "{}", Output::from_signal(reply).to_nota())?;
             return Ok(());
         }
 
         let runtime = tokio::runtime::Runtime::new()?;
-        let root = runtime.block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: crate::runtime::TargetSocketDirectory::empty(),
-            store: StoreLocation::from_environment(),
-        }))?;
+        let root = runtime.block_on(async {
+            IntrospectionRoot::spawn_root(IntrospectionRootInput {
+                targets: crate::runtime::TargetSocketDirectory::empty(),
+                store: StoreLocation::from_environment(),
+            })
+        })?;
         let reply = match input {
             Input::PrototypeWitness(query) => runtime.block_on(async {
                 root.ask(ExplainPrototypeWitness {

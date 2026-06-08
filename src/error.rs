@@ -7,8 +7,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("unexpected argument: {got}")]
     UnexpectedArgument { got: String },
-    #[error("missing introspection socket path")]
-    IntrospectionSocketMissing,
     #[error("unexpected signal frame: {got}")]
     UnexpectedSignalFrame { got: String },
     #[error("unexpected router observation reply: {got}")]

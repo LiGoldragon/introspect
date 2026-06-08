@@ -1,4 +1,11 @@
-use std::io::Write;
+//! End-to-end witnesses for the introspect daemon on the schema-emitted
+//! component-decoded daemon shell.
+//!
+//! The hand-written `UnixListener` accept loop is gone; every test drives the
+//! real `introspect-daemon` binary (argv = one binary rkyv config file), then
+//! talks the working `IntrospectionFrame` contract over the introspection-query
+//! socket or the supervision contract over the meta socket.
+
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -6,20 +13,19 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use introspect::{
-    IntrospectDaemonCommand, IntrospectDaemonConfigurationFile, SupervisionFrameCodec,
-    daemon::{IntrospectionDaemon, IntrospectionSignalClient, SocketMode},
-    store::StoreLocation,
-};
+use introspect::IntrospectionDaemonConfiguration;
+use introspect::SupervisionFrameCodec;
+use introspect::daemon::{IntrospectionDaemon, IntrospectionSignalClient};
+use introspect::schema::daemon::ComponentDaemon;
 use signal_engine_management::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
-    Frame as SupervisionFrame, FrameBody as SupervisionFrameBody, Operation as SupervisionRequest,
-    Presence, Query as SupervisionQuery, Reply as SupervisionReply,
+    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
+    Reply as SupervisionReply,
 };
 use signal_engine_management::{SocketMode as WireSocketMode, WirePath};
 use signal_frame::{
     ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
-    LaneSequence as FrameLaneSequence, Request as FrameRequest, SessionEpoch as FrameSessionEpoch,
+    LaneSequence as FrameLaneSequence, SessionEpoch as FrameSessionEpoch,
 };
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
@@ -29,54 +35,68 @@ use signal_introspect::{
 use signal_persona_origin::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona_origin::{OwnerIdentity, UnixUserIdentifier};
 
-fn serve_one(request: IntrospectionRequest) -> IntrospectionReply {
-    let directory = tempfile::tempdir().expect("tempdir");
-    let socket = directory.path().join("introspect.sock");
-    let bound = IntrospectionDaemon::from_socket(socket.clone())
-        .with_socket_mode(SocketMode::from_octal(0o600))
-        .with_store(StoreLocation::new(directory.path().join("introspect.sema")))
-        .bind()
-        .expect("daemon binds");
-    assert_eq!(
-        std::fs::metadata(bound.socket())
-            .expect("socket metadata")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+/// A running `introspect-daemon` child with both socket paths, torn down on
+/// drop.
+struct DaemonProcess {
+    child: Child,
+    introspect_socket: std::path::PathBuf,
+    supervision_socket: std::path::PathBuf,
+    _directory: tempfile::TempDir,
+}
 
-    let server = thread::spawn(move || bound.serve_one().expect("serve one"));
-    let reply = IntrospectionSignalClient::new(socket)
-        .submit(request)
-        .expect("client receives reply");
-    let served = server.join().expect("server joins");
-    assert_eq!(served, reply);
-    reply
+impl DaemonProcess {
+    fn spawn() -> Self {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let introspect_socket = directory.path().join("introspect.sock");
+        let supervision_socket = directory.path().join("supervision.sock");
+        let configuration_path = directory.path().join("introspect-daemon.rkyv");
+        let configuration =
+            daemon_configuration(directory.path(), &introspect_socket, &supervision_socket);
+        write_configuration(&configuration_path, &configuration);
+
+        let child = Command::new(env!("CARGO_BIN_EXE_introspect-daemon"))
+            .arg(&configuration_path)
+            .spawn()
+            .expect("introspect-daemon starts");
+
+        wait_for_socket(&introspect_socket);
+        Self {
+            child,
+            introspect_socket,
+            supervision_socket,
+            _directory: directory,
+        }
+    }
+
+    fn submit(&self, request: IntrospectionRequest) -> IntrospectionReply {
+        IntrospectionSignalClient::new(self.introspect_socket.clone())
+            .submit(request)
+            .expect("client receives reply")
+    }
+}
+
+impl Drop for DaemonProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 #[test]
-fn daemon_applies_spawn_envelope_socket_mode() {
-    let directory = tempfile::tempdir().expect("tempdir");
-    let socket = directory.path().join("introspect.sock");
-    let bound = IntrospectionDaemon::from_socket(socket)
-        .with_socket_mode(SocketMode::from_octal(0o600))
-        .with_store(StoreLocation::new(directory.path().join("introspect.sema")))
-        .bind()
-        .expect("daemon binds");
-
-    let mode = std::fs::metadata(bound.socket())
+fn daemon_applies_configured_socket_mode() {
+    let daemon = DaemonProcess::spawn();
+    let mode = std::fs::metadata(&daemon.introspect_socket)
         .expect("socket metadata")
         .permissions()
         .mode()
         & 0o777;
-
     assert_eq!(mode, 0o600);
 }
 
 #[test]
 fn daemon_serves_prototype_witness_over_signal_socket() {
-    let reply = serve_one(IntrospectionRequest::PrototypeWitness(
+    let daemon = DaemonProcess::spawn();
+    let reply = daemon.submit(IntrospectionRequest::PrototypeWitness(
         PrototypeWitnessQuery {
             engine: EngineIdentifier::new("prototype"),
         },
@@ -85,8 +105,6 @@ fn daemon_serves_prototype_witness_over_signal_socket() {
     match reply {
         IntrospectionReply::PrototypeWitness(witness) => {
             assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
-            // Daemon skeleton has not yet collected peer observations;
-            // every field is None per the closed-enum contract.
             assert_eq!(witness.manager_seen, None);
             assert_eq!(witness.router_seen, None);
             assert_eq!(witness.terminal_seen, None);
@@ -104,108 +122,21 @@ fn daemon_configuration_accepts_binary_file_argument() {
     let configuration_path = directory.path().join("introspect-daemon.rkyv");
     let configuration = daemon_configuration(directory.path(), &socket, &supervision_socket);
 
-    IntrospectDaemonConfigurationFile::new(&configuration_path)
-        .write_configuration(&configuration)
-        .expect("write binary introspect config");
+    write_configuration(&configuration_path, &configuration);
 
-    let decoded =
-        IntrospectDaemonCommand::from_arguments([configuration_path.display().to_string()])
-            .configuration()
-            .expect("read binary introspect config");
+    let decoded = IntrospectionDaemon::load_configuration(&configuration_path)
+        .expect("read binary introspect config")
+        .into_inner();
 
     assert_eq!(decoded, configuration);
 }
 
 #[test]
-fn daemon_configuration_rejects_nota_arguments() {
-    let directory = tempfile::tempdir().expect("tempdir");
-    let nota_path = directory.path().join("introspect-daemon.nota");
-    std::fs::write(&nota_path, "(IntrospectDaemonConfiguration)").expect("write nota fixture");
-
-    let inline = IntrospectDaemonCommand::from_arguments(["(IntrospectDaemonConfiguration)"])
-        .configuration()
-        .expect_err("inline NOTA is rejected");
-    let file = IntrospectDaemonCommand::from_arguments([nota_path.display().to_string()])
-        .configuration()
-        .expect_err(".nota file is rejected");
-
-    assert!(matches!(inline, introspect::Error::Argument(_)));
-    assert!(matches!(file, introspect::Error::Argument(_)));
-}
-
-#[test]
-fn daemon_answers_component_supervision_relation() {
-    let directory = tempfile::tempdir().expect("tempdir");
-    let socket = directory.path().join("introspect.sock");
-    let supervision_socket = directory.path().join("supervision.sock");
-    let configuration_path = directory.path().join("introspect-daemon.rkyv");
-    let configuration = daemon_configuration(directory.path(), &socket, &supervision_socket);
-    IntrospectDaemonConfigurationFile::new(&configuration_path)
-        .write_configuration(&configuration)
-        .expect("write binary introspect config");
-
-    let mut child = Command::new(env!("CARGO_BIN_EXE_introspect-daemon"))
-        .arg(&configuration_path)
-        .spawn()
-        .expect("introspect-daemon starts");
-
-    wait_for_socket(&supervision_socket);
-    let mode = std::fs::metadata(&supervision_socket)
-        .expect("supervision socket metadata")
-        .permissions()
-        .mode()
-        & 0o777;
-    assert_eq!(mode, 0o600);
-
-    let mut stream = UnixStream::connect(&supervision_socket).expect("client connects");
-    let codec = SupervisionFrameCodec::new(1024 * 1024);
-
-    write_supervision_request(
-        &mut stream,
-        SupervisionRequest::Announce(Presence {
-            expected_component: ComponentName::new("introspect"),
-            expected_kind: ComponentKind::Introspect,
-            engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
-        }),
-    );
-    assert!(matches!(
-        codec.read_reply(&mut stream).expect("identity reply"),
-        SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "introspect"
-                && identity.kind == ComponentKind::Introspect
-    ));
-
-    write_supervision_request(
-        &mut stream,
-        SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
-            "introspect",
-        ))),
-    );
-    assert!(matches!(
-        codec.read_reply(&mut stream).expect("readiness reply"),
-        SupervisionReply::Ready(_)
-    ));
-
-    write_supervision_request(
-        &mut stream,
-        SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
-            "introspect",
-        ))),
-    );
-    assert!(matches!(
-        codec.read_reply(&mut stream).expect("health reply"),
-        SupervisionReply::HealthReport(report)
-            if report.health == ComponentHealth::Running
-    ));
-
-    stop_child(&mut child);
-}
-
-#[test]
 fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
+    let daemon = DaemonProcess::spawn();
     let engine = EngineIdentifier::new("prototype");
 
-    let engine_reply = serve_one(IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
+    let engine_reply = daemon.submit(IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
         engine: engine.clone(),
     }));
     match engine_reply {
@@ -230,7 +161,7 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
         other => panic!("expected engine snapshot, got {other:?}"),
     }
 
-    let component_reply = serve_one(IntrospectionRequest::ComponentSnapshot(
+    let component_reply = daemon.submit(IntrospectionRequest::ComponentSnapshot(
         ComponentSnapshotQuery {
             engine: EngineIdentifier::new("prototype"),
             target: IntrospectionTarget::Router,
@@ -239,14 +170,12 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
     match component_reply {
         IntrospectionReply::ComponentSnapshot(snapshot) => {
             assert_eq!(snapshot.target, IntrospectionTarget::Router);
-            // No peer observation yet → readiness is None on the carrier
-            // record; the inner ComponentReadiness enum stays closed.
             assert_eq!(snapshot.readiness, None);
         }
         other => panic!("expected component snapshot, got {other:?}"),
     }
 
-    let delivery_reply = serve_one(IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
+    let delivery_reply = daemon.submit(IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
         engine: EngineIdentifier::new("prototype"),
         message_identifier: MessageIdentifier::new(7),
         originator: AuthComponentName::Message,
@@ -255,26 +184,81 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
         IntrospectionReply::DeliveryTrace(trace) => {
             assert_eq!(trace.message_identifier, MessageIdentifier::new(7));
             assert_eq!(trace.originator, AuthComponentName::Message);
-            // No Tap trace observed yet → the carrier's event vector is
-            // empty; each present event carries a closed status.
             assert!(trace.events.is_empty());
         }
         other => panic!("expected delivery trace, got {other:?}"),
     }
 }
 
-fn write_supervision_request(stream: &mut UnixStream, request: SupervisionRequest) {
-    let frame = SupervisionFrame::new(SupervisionFrameBody::Request {
-        exchange: test_frame_exchange(),
-        request: FrameRequest::from_payload(request),
-    });
-    let bytes = frame
-        .encode_length_prefixed()
-        .expect("supervision request encodes");
-    stream
-        .write_all(bytes.as_slice())
-        .expect("supervision request writes");
-    stream.flush().expect("supervision request flushes");
+#[test]
+fn daemon_answers_component_supervision_relation() {
+    let daemon = DaemonProcess::spawn();
+    wait_for_socket(&daemon.supervision_socket);
+    let mode = std::fs::metadata(&daemon.supervision_socket)
+        .expect("supervision socket metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let mut stream = UnixStream::connect(&daemon.supervision_socket).expect("client connects");
+    let codec = SupervisionFrameCodec::new(1024 * 1024);
+
+    codec
+        .write_request(
+            &mut stream,
+            test_frame_exchange(),
+            SupervisionRequest::Announce(Presence {
+                expected_component: ComponentName::new("introspect"),
+                expected_kind: ComponentKind::Introspect,
+                engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
+            }),
+        )
+        .expect("announce writes");
+    assert!(matches!(
+        codec.read_reply(&mut stream).expect("identity reply"),
+        SupervisionReply::Identified(identity)
+            if identity.name.as_str() == "introspect"
+                && identity.kind == ComponentKind::Introspect
+    ));
+
+    codec
+        .write_request(
+            &mut stream,
+            test_frame_exchange(),
+            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
+                "introspect",
+            ))),
+        )
+        .expect("readiness writes");
+    assert!(matches!(
+        codec.read_reply(&mut stream).expect("readiness reply"),
+        SupervisionReply::Ready(_)
+    ));
+
+    codec
+        .write_request(
+            &mut stream,
+            test_frame_exchange(),
+            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
+                "introspect",
+            ))),
+        )
+        .expect("health writes");
+    assert!(matches!(
+        codec.read_reply(&mut stream).expect("health reply"),
+        SupervisionReply::HealthReport(report)
+            if report.health == ComponentHealth::Running
+    ));
+}
+
+fn write_configuration(path: &Path, configuration: &IntrospectDaemonConfiguration) {
+    let bytes = configuration
+        .to_rkyv_bytes()
+        .expect("introspect config rkyv encodes");
+    std::fs::write(path, bytes.as_slice()).expect("write binary introspect config");
+    // Witness the round-trip the daemon performs at startup.
+    let _ = IntrospectionDaemonConfiguration::new(configuration.clone());
 }
 
 fn test_frame_exchange() -> FrameExchangeIdentifier {
@@ -296,11 +280,6 @@ fn wait_for_socket(socket: &Path) {
     panic!("socket was not created: {}", socket.display());
 }
 
-fn stop_child(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
 fn daemon_configuration(
     directory: &Path,
     socket: &Path,
@@ -312,9 +291,12 @@ fn daemon_configuration(
         supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
         supervision_socket_mode: WireSocketMode::new(0o600),
         store_path: WirePath::new(directory.join("introspect.sema").display().to_string()),
-        manager_socket_path: WirePath::new(directory.join("persona.sock").display().to_string()),
-        router_socket_path: WirePath::new(directory.join("router.sock").display().to_string()),
-        terminal_socket_path: WirePath::new(directory.join("terminal.sock").display().to_string()),
+        // The prototype daemon has no live peers in this harness; an empty wire
+        // path means "no peer configured", so the witness reports each peer as
+        // unseen rather than failing on an unreachable socket.
+        manager_socket_path: WirePath::new(String::new()),
+        router_socket_path: WirePath::new(String::new()),
+        terminal_socket_path: WirePath::new(String::new()),
         owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
     }
 }

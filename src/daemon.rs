@@ -1,337 +1,456 @@
-use std::io::{BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
+//! Introspect's daemon hooks — the only daemon code introspect hand-writes.
+//!
+//! The uniform daemon skeleton (argv parsing, async task-backed multi-listener
+//! binding, request gating, peer credentials, lifecycle, and the `ExitReport`
+//! entry) is emitted into `src/schema/daemon.rs` by schema-rust-next's daemon
+//! emitter under the **component-decoded** working tier. Introspect's ordinary
+//! socket speaks the hand-written `signal-introspect` `IntrospectionFrame`
+//! contract (not a schema-derived root), so the emitted shell owns listener
+//! mechanics while introspect owns the per-connection frame decode/encode and
+//! drives the existing `IntrospectionRoot` kameo actor tree.
+//!
+//! Introspect fills the record-1488 escape hatches through
+//! `impl ComponentDaemon for IntrospectionDaemon`: how to load its binary
+//! `Configuration`, how to open its kameo engine (`build_runtime`), how one
+//! working `IntrospectionFrame` connection becomes a reply, and how the meta
+//! (owner-only supervision) socket is served.
+
 use std::path::{Path, PathBuf};
 
 use kameo::actor::ActorRef;
 use kameo::error::SendError;
-use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
-    SubReply,
-};
+use signal_frame::{ExchangeIdentifier, NonEmpty, Reply, Request, SubReply};
 use signal_introspect::{
     IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
     IntrospectionReply, IntrospectionRequest,
 };
+use thiserror::Error;
+use tokio::io::AsyncWriteExt;
+use triad_runtime::{
+    AcceptedConnection, FrameBody as LengthPrefixedFrameBody, FrameError, LengthPrefixedCodec,
+    RequestConcurrencyLimit, SocketMode,
+};
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 use crate::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use crate::store::StoreLocation;
-use crate::supervision::{SupervisionListener, SupervisionProfile, SupervisionSocketMode};
+use crate::supervision::{HandleSupervisionRequest, SupervisionPhase, SupervisionProfile};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IntrospectionSocket {
-    path: PathBuf,
+const MAXIMUM_CONCURRENT_REQUESTS: usize = 64;
+
+/// The type-level selector for introspect's emitted daemon. It carries no
+/// runtime data — it is the marker the emitted `DaemonCommand<IntrospectionDaemon>`
+/// and the generated runtime dispatch on, selecting introspect's
+/// `Configuration` / `Engine` / `Error` types through the `ComponentDaemon`
+/// associated types.
+#[derive(Debug)]
+pub struct IntrospectionDaemon;
+
+/// Introspect's daemon error: the frame-transport variants the emitted spine
+/// surfaces plus introspect's domain error. The emitted
+/// `DaemonError<IntrospectionDaemon>` wraps this under its `Component` arm.
+#[derive(Debug, Error)]
+pub enum IntrospectionDaemonError {
+    #[error("daemon frame error: {0}")]
+    Frame(#[from] FrameError),
+
+    #[error("daemon signal frame error: {0}")]
+    SignalFrame(#[from] signal_frame::FrameError),
+
+    #[error("introspect engine error: {0}")]
+    Engine(#[from] Error),
+
+    #[error("unexpected introspection frame: {got}")]
+    UnexpectedFrame { got: String },
 }
 
-impl IntrospectionSocket {
-    pub fn from_path(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-
-    /// CLI convenience — the `introspect` CLI may discover the daemon's
-    /// socket via `PERSONA_INTROSPECT_SOCKET` / `PERSONA_SOCKET_PATH`
-    /// as a last-resort connection target. **Not for the daemon's
-    /// production launch path** — the daemon binds the socket path
-    /// supplied by `IntrospectDaemonConfiguration.introspect_socket_path`.
-    pub fn from_environment() -> Option<Self> {
-        std::env::var_os("PERSONA_INTROSPECT_SOCKET")
-            .or_else(|| std::env::var_os("PERSONA_SOCKET_PATH"))
-            .map(Self::from_path)
-    }
-
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
-    }
-
-    pub fn client(&self) -> IntrospectionSignalClient {
-        IntrospectionSignalClient::new(self.path.clone())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SocketMode(u32);
-
-impl SocketMode {
-    pub const fn from_octal(value: u32) -> Self {
-        Self(value)
-    }
-
-    pub const fn as_octal(self) -> u32 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IntrospectionDaemon {
-    socket: IntrospectionSocket,
-    targets: TargetSocketDirectory,
-    store: StoreLocation,
-    socket_mode: Option<SocketMode>,
-    supervision: Option<SupervisionListener>,
-}
-
-impl IntrospectionDaemon {
-    /// Canonical constructor — every production launch reads typed
-    /// `IntrospectDaemonConfiguration` from a signal-encoded archive
-    /// and hands the record here.
-    pub fn from_configuration(configuration: IntrospectDaemonConfiguration) -> Self {
-        let targets = TargetSocketDirectory {
-            manager_socket: Some(PathBuf::from(configuration.manager_socket_path.as_str())),
-            router_socket: Some(PathBuf::from(configuration.router_socket_path.as_str())),
-            terminal_socket: Some(PathBuf::from(configuration.terminal_socket_path.as_str())),
-        };
-        let supervision = SupervisionListener::new(
-            SupervisionProfile::introspect(),
-            PathBuf::from(configuration.supervision_socket_path.as_str()),
-            SupervisionSocketMode::from_octal(configuration.supervision_socket_mode.into_u32()),
-        );
-        Self {
-            socket: IntrospectionSocket::from_path(configuration.introspect_socket_path.as_str()),
-            targets,
-            store: StoreLocation::new(configuration.store_path.as_str()),
-            socket_mode: Some(SocketMode::from_octal(
-                configuration.introspect_socket_mode.into_u32(),
-            )),
-            supervision: Some(supervision),
-        }
-    }
-
-    /// In-process constructor for tests that build the daemon directly
-    /// without going through a configuration file.
-    pub fn from_introspection_socket(socket: IntrospectionSocket) -> Self {
-        Self {
-            socket,
-            targets: TargetSocketDirectory::empty(),
-            store: StoreLocation::new("/tmp/introspect.sema"),
-            socket_mode: None,
-            supervision: None,
-        }
-    }
-
-    pub fn from_socket(socket: impl Into<PathBuf>) -> Self {
-        Self::from_introspection_socket(IntrospectionSocket::from_path(socket))
-    }
-
-    pub fn with_targets(mut self, targets: TargetSocketDirectory) -> Self {
-        self.targets = targets;
-        self
-    }
-
-    pub fn with_store(mut self, store: StoreLocation) -> Self {
-        self.store = store;
-        self
-    }
-
-    pub fn with_socket_mode(mut self, socket_mode: SocketMode) -> Self {
-        self.socket_mode = Some(socket_mode);
-        self
-    }
-
-    pub fn socket(&self) -> &Path {
-        self.socket.path()
-    }
-
-    pub fn run(self) -> Result<()> {
-        let supervision = self.supervision.clone();
-        let bound = self.bind()?;
-        let _supervision = supervision.map(SupervisionListener::spawn).transpose()?;
-        eprintln!("introspect-daemon socket={}", bound.socket.display());
-        bound.serve_forever()
-    }
-
-    pub fn bind(self) -> Result<BoundIntrospectionDaemon> {
-        if let Some(parent) = self.socket.path().parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let _ = std::fs::remove_file(self.socket.path());
-        let listener = UnixListener::bind(self.socket.path())?;
-        if let Some(mode) = self.socket_mode {
-            std::fs::set_permissions(
-                self.socket.path(),
-                std::fs::Permissions::from_mode(mode.as_octal()),
-            )?;
-        }
-        let runtime = tokio::runtime::Runtime::new()?;
-        let root = runtime.block_on(IntrospectionRoot::start_root(IntrospectionRootInput {
-            targets: self.targets,
-            store: self.store,
-        }))?;
-        Ok(BoundIntrospectionDaemon {
-            socket: self.socket.path,
-            runtime,
-            listener,
-            root,
-        })
-    }
-
-    pub fn serve_one(self) -> Result<IntrospectionReply> {
-        self.bind()?.serve_one()
-    }
-
-    fn handle_connection(
-        runtime: &tokio::runtime::Runtime,
-        root: &ActorRef<IntrospectionRoot>,
-        stream: UnixStream,
-    ) -> Result<IntrospectionReply> {
-        let mut connection = IntrospectionConnection::from_stream(stream);
-        let request = connection.read_signal_request()?;
-        let reply = match runtime.block_on(async {
-            root.ask(HandleIntrospectionRequest {
-                request: request.request,
-            })
-            .await
-        }) {
-            Ok(reply) => reply,
-            Err(SendError::HandlerError(error)) => return Err(error),
-            Err(error) => {
-                return Err(Error::Actor {
-                    operation: "handle introspection request",
-                    detail: format!("{error:?}"),
-                });
-            }
-        };
-        connection.write_signal_reply(request.exchange, reply.clone())?;
-        Ok(reply)
-    }
-}
-
-pub struct BoundIntrospectionDaemon {
-    socket: PathBuf,
-    runtime: tokio::runtime::Runtime,
-    listener: UnixListener,
+/// The engine the component-decoded daemon shell owns: the running kameo actor
+/// tree. The working tier drives the `IntrospectionRoot`; the meta tier drives
+/// the owner-only supervision `SupervisionPhase`. Both `ActorRef`s are `Send +
+/// Sync + Clone`, and each actor's mailbox serialises its own state, so the
+/// shared `&Engine` the component-decoded shell hands every connection needs no
+/// component-internal lock.
+#[derive(Clone)]
+pub struct IntrospectionEngine {
     root: ActorRef<IntrospectionRoot>,
+    supervision: ActorRef<SupervisionPhase>,
 }
 
-impl BoundIntrospectionDaemon {
-    pub fn socket(&self) -> &Path {
-        self.socket.as_path()
+impl IntrospectionEngine {
+    /// Start the kameo actor tree. The body is synchronous — kameo `spawn` and
+    /// the sema-store open are sync — so the daemon shell's `build_runtime` hook
+    /// (run inside the runtime's `block_on`) constructs it without a nested
+    /// `block_on`. Each actor's `on_start` is trivial, so the mailbox is ready
+    /// to queue requests the instant the ref exists.
+    pub fn start(
+        targets: TargetSocketDirectory,
+        store: StoreLocation,
+        profile: SupervisionProfile,
+    ) -> Result<Self, IntrospectionDaemonError> {
+        let root = IntrospectionRoot::spawn_root(IntrospectionRootInput { targets, store })
+            .map_err(IntrospectionDaemonError::Engine)?;
+        let supervision = SupervisionPhase::spawn_phase(profile);
+        Ok(Self { root, supervision })
     }
 
-    pub fn serve_one(self) -> Result<IntrospectionReply> {
-        let (stream, _address) = self.listener.accept()?;
-        let reply = IntrospectionDaemon::handle_connection(&self.runtime, &self.root, stream)?;
-        self.runtime
-            .block_on(self.root.stop_gracefully())
-            .map_err(|error| Error::Actor {
-                operation: "stop introspection root",
-                detail: error.to_string(),
-            })?;
-        self.runtime.block_on(self.root.wait_for_shutdown());
-        let _ = std::fs::remove_file(&self.socket);
-        Ok(reply)
+    /// Drive one decoded introspection request through the root actor, returning
+    /// the reply payload.
+    async fn answer(
+        &self,
+        request: IntrospectionRequest,
+    ) -> Result<IntrospectionReply, IntrospectionDaemonError> {
+        match self.root.ask(HandleIntrospectionRequest { request }).await {
+            Ok(reply) => Ok(reply),
+            Err(SendError::HandlerError(error)) => Err(IntrospectionDaemonError::Engine(error)),
+            Err(error) => Err(IntrospectionDaemonError::Engine(Error::Actor {
+                operation: "handle introspection request",
+                detail: format!("{error:?}"),
+            })),
+        }
     }
 
-    pub fn serve_forever(self) -> Result<()> {
-        for stream in self.listener.incoming() {
-            let stream = stream?;
-            let _ = IntrospectionDaemon::handle_connection(&self.runtime, &self.root, stream)?;
+    fn stop(&self) {
+        self.root.kill();
+        self.supervision.kill();
+    }
+}
+
+/// Introspect's binary startup configuration, wrapping the typed
+/// `IntrospectDaemonConfiguration` from `signal-introspect` with the
+/// `triad_runtime::DaemonConfiguration` projection the emitted shell drives:
+/// the working socket is the introspection-query socket, the meta socket is the
+/// owner-only supervision socket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntrospectionDaemonConfiguration {
+    configuration: IntrospectDaemonConfiguration,
+}
+
+impl IntrospectionDaemonConfiguration {
+    pub fn new(configuration: IntrospectDaemonConfiguration) -> Self {
+        Self { configuration }
+    }
+
+    pub fn into_inner(self) -> IntrospectDaemonConfiguration {
+        self.configuration
+    }
+
+    pub fn from_signal_file(path: &Path) -> Result<Self, Error> {
+        let bytes = std::fs::read(path).map_err(|source| Error::ConfigurationRead {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        IntrospectDaemonConfiguration::from_rkyv_bytes(bytes.as_slice())
+            .map(Self::new)
+            .map_err(|_| Error::ConfigurationArchiveDecode)
+    }
+
+    fn targets(&self) -> TargetSocketDirectory {
+        TargetSocketDirectory {
+            manager_socket: Self::peer_socket(self.configuration.manager_socket_path.as_str()),
+            router_socket: Self::peer_socket(self.configuration.router_socket_path.as_str()),
+            terminal_socket: Self::peer_socket(self.configuration.terminal_socket_path.as_str()),
+        }
+    }
+
+    /// An empty wire path means "no peer configured" — the prototype daemon then
+    /// reports that peer's observation as unseen rather than failing the query
+    /// on an unreachable socket. A non-empty path is the peer's live socket.
+    fn peer_socket(path: &str) -> Option<PathBuf> {
+        if path.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(path))
+        }
+    }
+
+    fn store(&self) -> StoreLocation {
+        StoreLocation::new(self.configuration.store_path.as_str())
+    }
+}
+
+impl triad_runtime::DaemonConfiguration for IntrospectionDaemonConfiguration {
+    fn socket_path(&self) -> &Path {
+        Path::new(self.configuration.introspect_socket_path.as_str())
+    }
+
+    fn socket_mode(&self) -> Option<SocketMode> {
+        Some(SocketMode::new(
+            self.configuration.introspect_socket_mode.into_u32(),
+        ))
+    }
+
+    fn request_concurrency_limit(&self) -> RequestConcurrencyLimit {
+        RequestConcurrencyLimit::new(MAXIMUM_CONCURRENT_REQUESTS)
+    }
+
+    fn meta_socket_path(&self) -> Option<&Path> {
+        Some(Path::new(
+            self.configuration.supervision_socket_path.as_str(),
+        ))
+    }
+
+    fn database_path(&self) -> &Path {
+        Path::new(self.configuration.store_path.as_str())
+    }
+}
+
+impl crate::schema::daemon::ComponentDaemon for IntrospectionDaemon {
+    type Configuration = IntrospectionDaemonConfiguration;
+    type ConfigurationError = Error;
+    type Engine = IntrospectionEngine;
+    type Error = IntrospectionDaemonError;
+
+    const PROCESS_NAME: &'static str = "introspect-daemon";
+
+    fn load_configuration(path: &Path) -> Result<Self::Configuration, Self::ConfigurationError> {
+        IntrospectionDaemonConfiguration::from_signal_file(path)
+    }
+
+    fn build_runtime(configuration: &Self::Configuration) -> Result<Self::Engine, Self::Error> {
+        IntrospectionEngine::start(
+            configuration.targets(),
+            configuration.store(),
+            SupervisionProfile::introspect(),
+        )
+    }
+
+    fn stop(engine: &Self::Engine) -> Result<(), Self::Error> {
+        engine.stop();
+        Ok(())
+    }
+
+    /// Serve one working introspection-query connection: decode the
+    /// `IntrospectionFrame` request off the accepted stream, drive it through
+    /// the `IntrospectionRoot` actor, and write the reply frame back.
+    async fn handle_working_connection(
+        engine: &Self::Engine,
+        connection: AcceptedConnection,
+    ) -> Result<(), Self::Error> {
+        let mut transport = IntrospectionTransport::new(connection);
+        let received = transport.read_request().await?;
+        let reply = engine.answer(received.request).await?;
+        transport.write_reply(received.exchange, reply).await
+    }
+
+    /// Serve one owner-only meta (supervision) connection. The
+    /// engine-management relation is request/reply over a persistent stream, so
+    /// this hook loops, answering each supervision request the manager sends
+    /// until the peer closes the connection.
+    async fn handle_meta_connection(
+        engine: &Self::Engine,
+        connection: AcceptedConnection,
+    ) -> Result<(), Self::Error> {
+        let mut transport = SupervisionTransport::new(connection);
+        while let Some(received) = transport.read_request().await? {
+            let reply = match engine
+                .supervision
+                .ask(HandleSupervisionRequest::new(received.request))
+                .await
+            {
+                Ok(reply) => reply.into_reply(),
+                Err(error) => {
+                    return Err(IntrospectionDaemonError::Engine(Error::Actor {
+                        operation: "handle supervision request",
+                        detail: format!("{error:?}"),
+                    }));
+                }
+            };
+            transport.write_reply(received.exchange, reply).await?;
         }
         Ok(())
     }
 }
 
-pub struct IntrospectionConnection {
-    stream: BufReader<UnixStream>,
-    signal: IntrospectionFrameCodec,
+/// The introspection-query wire transport over one accepted working connection:
+/// the triad length-prefix envelope wraps the bare `IntrospectionFrame` archive
+/// (the envelope owns the 4-byte length frame, so the inner codec speaks
+/// `encode`/`decode`, not `encode_length_prefixed`).
+struct IntrospectionTransport {
+    connection: AcceptedConnection,
 }
 
-impl IntrospectionConnection {
-    pub fn from_stream(stream: UnixStream) -> Self {
-        Self {
-            stream: BufReader::new(stream),
-            signal: IntrospectionFrameCodec::default(),
-        }
+impl IntrospectionTransport {
+    fn new(connection: AcceptedConnection) -> Self {
+        Self { connection }
     }
 
-    pub fn read_signal_request(&mut self) -> Result<ReceivedIntrospectionRequest> {
-        self.signal.read_request(&mut self.stream)
-    }
-
-    pub fn write_signal_reply(
+    async fn read_request(
         &mut self,
-        exchange: ExchangeIdentifier,
-        reply: IntrospectionReply,
-    ) -> Result<()> {
-        let stream = self.stream.get_mut();
-        self.signal.write_reply(stream, exchange, reply)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IntrospectionFrameCodec {
-    maximum_frame_bytes: usize,
-}
-
-impl IntrospectionFrameCodec {
-    pub const fn new(maximum_frame_bytes: usize) -> Self {
-        Self {
-            maximum_frame_bytes,
-        }
-    }
-
-    pub fn read_frame(&self, reader: &mut impl Read) -> Result<IntrospectionFrame> {
-        let mut prefix = [0_u8; 4];
-        reader.read_exact(&mut prefix)?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        if length > self.maximum_frame_bytes {
-            return Err(Error::UnexpectedSignalFrame {
-                got: format!("frame length {length} exceeds {}", self.maximum_frame_bytes),
-            });
-        }
-        let mut bytes = Vec::with_capacity(4 + length);
-        bytes.extend_from_slice(&prefix);
-        bytes.resize(4 + length, 0);
-        reader.read_exact(&mut bytes[4..])?;
-        Ok(IntrospectionFrame::decode_length_prefixed(&bytes)?)
-    }
-
-    pub fn write_frame(&self, writer: &mut impl Write, frame: &IntrospectionFrame) -> Result<()> {
-        let bytes = frame.encode_length_prefixed()?;
-        writer.write_all(&bytes)?;
-        writer.flush()?;
-        Ok(())
-    }
-
-    pub fn read_request(&self, reader: &mut impl Read) -> Result<ReceivedIntrospectionRequest> {
-        match self.read_frame(reader)?.into_body() {
+    ) -> Result<ReceivedIntrospectionRequest, IntrospectionDaemonError> {
+        let frame_bytes = LengthPrefixedCodec::default()
+            .read_body_async(self.connection.stream_mut())
+            .await?
+            .into_bytes();
+        match IntrospectionFrame::decode(&frame_bytes)?.into_body() {
             FrameBody::Request { exchange, request } => {
                 let (request, tail) = request.payloads.into_head_and_tail();
                 if !tail.is_empty() {
-                    return Err(Error::UnexpectedSignalFrame {
+                    return Err(IntrospectionDaemonError::UnexpectedFrame {
                         got: format!("expected one introspection payload, got {}", tail.len() + 1),
                     });
                 }
                 Ok(ReceivedIntrospectionRequest { exchange, request })
             }
-            other => Err(Error::UnexpectedSignalFrame {
+            other => Err(IntrospectionDaemonError::UnexpectedFrame {
                 got: format!("{other:?}"),
             }),
         }
     }
 
-    pub fn read_reply(&self, reader: &mut impl Read) -> Result<IntrospectionReply> {
-        match self.read_frame(reader)?.into_body() {
-            FrameBody::Reply { reply, .. } => match reply {
-                Reply::Accepted { per_operation, .. } => {
-                    let (sub_reply, tail) = per_operation.into_head_and_tail();
-                    if !tail.is_empty() {
-                        return Err(Error::UnexpectedSignalFrame {
-                            got: format!(
-                                "expected one introspection reply operation, got {}",
-                                tail.len() + 1
-                            ),
-                        });
-                    }
-                    match sub_reply {
-                        SubReply::Ok(payload) => Ok(payload),
-                        other => Err(Error::UnexpectedSignalFrame {
-                            got: format!("{other:?}"),
-                        }),
-                    }
+    async fn write_reply(
+        &mut self,
+        exchange: ExchangeIdentifier,
+        reply: IntrospectionReply,
+    ) -> Result<(), IntrospectionDaemonError> {
+        let frame = IntrospectionFrame::new(FrameBody::Reply {
+            exchange,
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
+        });
+        LengthPrefixedCodec::default()
+            .write_body_async(
+                self.connection.stream_mut(),
+                &LengthPrefixedFrameBody::new(frame.encode()?),
+            )
+            .await?;
+        self.connection
+            .stream_mut()
+            .flush()
+            .await
+            .map_err(FrameError::from)?;
+        Ok(())
+    }
+}
+
+struct ReceivedIntrospectionRequest {
+    exchange: ExchangeIdentifier,
+    request: IntrospectionRequest,
+}
+
+/// The supervision wire transport over one accepted meta connection. Each read
+/// yields `None` when the peer closes the persistent stream, ending the relation
+/// loop.
+struct SupervisionTransport {
+    connection: AcceptedConnection,
+}
+
+impl SupervisionTransport {
+    fn new(connection: AcceptedConnection) -> Self {
+        Self { connection }
+    }
+
+    async fn read_request(
+        &mut self,
+    ) -> Result<Option<ReceivedSupervisionRequest>, IntrospectionDaemonError> {
+        use signal_engine_management::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
+
+        let frame_bytes = match LengthPrefixedCodec::default()
+            .read_body_async(self.connection.stream_mut())
+            .await
+        {
+            Ok(body) => body.into_bytes(),
+            Err(_) => return Ok(None),
+        };
+        match SupervisionFrame::decode(&frame_bytes)?.into_body() {
+            SupervisionBody::Request { exchange, request } => {
+                let mut operations = request.payloads.into_vec();
+                if operations.len() != 1 {
+                    return Err(IntrospectionDaemonError::UnexpectedFrame {
+                        got: format!(
+                            "expected one supervision operation, got {}",
+                            operations.len()
+                        ),
+                    });
                 }
+                Ok(Some(ReceivedSupervisionRequest {
+                    exchange,
+                    request: operations.remove(0),
+                }))
+            }
+            other => Err(IntrospectionDaemonError::UnexpectedFrame {
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    async fn write_reply(
+        &mut self,
+        exchange: ExchangeIdentifier,
+        reply: signal_engine_management::Reply,
+    ) -> Result<(), IntrospectionDaemonError> {
+        use signal_engine_management::{Frame as SupervisionFrame, FrameBody as SupervisionBody};
+
+        let frame = SupervisionFrame::new(SupervisionBody::Reply {
+            exchange,
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
+        });
+        LengthPrefixedCodec::default()
+            .write_body_async(
+                self.connection.stream_mut(),
+                &LengthPrefixedFrameBody::new(frame.encode()?),
+            )
+            .await?;
+        self.connection
+            .stream_mut()
+            .flush()
+            .await
+            .map_err(FrameError::from)?;
+        Ok(())
+    }
+}
+
+struct ReceivedSupervisionRequest {
+    exchange: ExchangeIdentifier,
+    request: signal_engine_management::Operation,
+}
+
+/// A blocking, in-process client for the introspection-query socket — the
+/// `introspect` CLI's last-resort connection target. The daemon's production
+/// launch path never uses this; it binds the socket the emitted shell drives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntrospectionSignalClient {
+    socket: PathBuf,
+}
+
+impl IntrospectionSignalClient {
+    pub fn new(socket: impl Into<PathBuf>) -> Self {
+        Self {
+            socket: socket.into(),
+        }
+    }
+
+    pub fn submit(&self, request: IntrospectionRequest) -> crate::Result<IntrospectionReply> {
+        use signal_frame::{ExchangeLane, LaneSequence, SessionEpoch};
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+
+        let mut stream = UnixStream::connect(&self.socket)?;
+        let exchange = ExchangeIdentifier::new(
+            SessionEpoch::new(1),
+            ExchangeLane::Connector,
+            LaneSequence::new(1),
+        );
+        let request_frame = IntrospectionFrame::new(FrameBody::Request {
+            exchange,
+            request: Request::from_payload(request),
+        });
+        stream.write_all(&request_frame.encode_length_prefixed()?)?;
+        stream.flush()?;
+
+        let mut prefix = [0_u8; 4];
+        stream.read_exact(&mut prefix)?;
+        let length = u32::from_be_bytes(prefix) as usize;
+        let mut bytes = vec![0_u8; length];
+        stream.read_exact(&mut bytes)?;
+        match IntrospectionFrame::decode(&bytes)?.into_body() {
+            FrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok(payload) => Ok(payload),
+                    other => Err(Error::UnexpectedSignalFrame {
+                        got: format!("{other:?}"),
+                    }),
+                },
                 Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
                     got: reason.to_string(),
                 }),
@@ -340,72 +459,5 @@ impl IntrospectionFrameCodec {
                 got: format!("{other:?}"),
             }),
         }
-    }
-
-    pub fn write_request(
-        &self,
-        writer: &mut impl Write,
-        request: IntrospectionRequest,
-    ) -> Result<()> {
-        let frame = IntrospectionFrame::new(FrameBody::Request {
-            exchange: synthetic_exchange(),
-            request: Request::from_payload(request),
-        });
-        self.write_frame(writer, &frame)
-    }
-
-    pub fn write_reply(
-        &self,
-        writer: &mut impl Write,
-        exchange: ExchangeIdentifier,
-        reply: IntrospectionReply,
-    ) -> Result<()> {
-        let frame = IntrospectionFrame::new(FrameBody::Reply {
-            exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
-        });
-        self.write_frame(writer, &frame)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReceivedIntrospectionRequest {
-    exchange: ExchangeIdentifier,
-    request: IntrospectionRequest,
-}
-
-impl Default for IntrospectionFrameCodec {
-    fn default() -> Self {
-        Self::new(1024 * 1024)
-    }
-}
-
-fn synthetic_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(1),
-        ExchangeLane::Connector,
-        LaneSequence::new(1),
-    )
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IntrospectionSignalClient {
-    socket: PathBuf,
-    signal: IntrospectionFrameCodec,
-}
-
-impl IntrospectionSignalClient {
-    pub fn new(socket: PathBuf) -> Self {
-        Self {
-            socket,
-            signal: IntrospectionFrameCodec::default(),
-        }
-    }
-
-    pub fn submit(&self, request: IntrospectionRequest) -> Result<IntrospectionReply> {
-        let mut stream = UnixStream::connect(&self.socket)?;
-        self.signal.write_request(&mut stream, request)?;
-        let mut reader = BufReader::new(stream);
-        self.signal.read_reply(&mut reader)
     }
 }
