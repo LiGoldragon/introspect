@@ -4,23 +4,23 @@
 //! The hand-written `UnixListener` accept loop is gone; every test drives the
 //! real `introspect-daemon` binary (argv = one binary rkyv config file), then
 //! talks the working `IntrospectionFrame` contract over the introspection-query
-//! socket or the supervision contract over the meta socket.
+//! socket or the meta-signal-introspect contract over the meta socket.
 
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use introspect::IntrospectionDaemonConfiguration;
-use introspect::SupervisionFrameCodec;
 use introspect::daemon::{IntrospectionDaemon, IntrospectionSignalClient};
+use introspect::meta::{MetaIntrospectClient, MetaIntrospectEndpoint};
 use introspect::schema::daemon::ComponentDaemon;
-use signal_frame::{
-    ExchangeIdentifier as FrameExchangeIdentifier, ExchangeLane as FrameExchangeLane,
-    LaneSequence as FrameLaneSequence, SessionEpoch as FrameSessionEpoch,
+use meta_signal_introspect::{
+    MetaIntrospectReply, Operation as MetaIntrospectOperation,
+    OperationKind as MetaIntrospectOperationKind, UnimplementedReason,
 };
+use nota_next::NotaEncode;
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
@@ -28,11 +28,6 @@ use signal_introspect::{
 };
 use signal_persona::origin::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona::origin::{OwnerIdentity, UnixUserIdentifier};
-use signal_persona::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
-    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
-    Reply as SupervisionReply,
-};
 use signal_persona::{SocketMode as WireSocketMode, WirePath};
 
 /// A running `introspect-daemon` child with both socket paths, torn down on
@@ -40,7 +35,8 @@ use signal_persona::{SocketMode as WireSocketMode, WirePath};
 struct DaemonProcess {
     child: Child,
     introspect_socket: std::path::PathBuf,
-    supervision_socket: std::path::PathBuf,
+    meta_socket: std::path::PathBuf,
+    configuration: IntrospectDaemonConfiguration,
     _directory: tempfile::TempDir,
 }
 
@@ -48,10 +44,10 @@ impl DaemonProcess {
     fn spawn() -> Self {
         let directory = tempfile::tempdir().expect("tempdir");
         let introspect_socket = directory.path().join("introspect.sock");
-        let supervision_socket = directory.path().join("supervision.sock");
+        let meta_socket = directory.path().join("meta-introspect.sock");
         let configuration_path = directory.path().join("introspect-daemon.rkyv");
         let configuration =
-            daemon_configuration(directory.path(), &introspect_socket, &supervision_socket);
+            daemon_configuration(directory.path(), &introspect_socket, &meta_socket);
         write_configuration(&configuration_path, &configuration);
 
         let child = Command::new(env!("CARGO_BIN_EXE_introspect-daemon"))
@@ -60,10 +56,12 @@ impl DaemonProcess {
             .expect("introspect-daemon starts");
 
         wait_for_socket(&introspect_socket);
+        wait_for_socket(&meta_socket);
         Self {
             child,
             introspect_socket,
-            supervision_socket,
+            meta_socket,
+            configuration,
             _directory: directory,
         }
     }
@@ -118,9 +116,9 @@ fn daemon_serves_prototype_witness_over_signal_socket() {
 fn daemon_configuration_accepts_binary_file_argument() {
     let directory = tempfile::tempdir().expect("tempdir");
     let socket = directory.path().join("introspect.sock");
-    let supervision_socket = directory.path().join("supervision.sock");
+    let meta_socket = directory.path().join("meta-introspect.sock");
     let configuration_path = directory.path().join("introspect-daemon.rkyv");
-    let configuration = daemon_configuration(directory.path(), &socket, &supervision_socket);
+    let configuration = daemon_configuration(directory.path(), &socket, &meta_socket);
 
     write_configuration(&configuration_path, &configuration);
 
@@ -191,65 +189,71 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
 }
 
 #[test]
-fn daemon_answers_component_supervision_relation() {
+fn daemon_answers_typed_meta_policy_relation() {
     let daemon = DaemonProcess::spawn();
-    wait_for_socket(&daemon.supervision_socket);
-    let mode = std::fs::metadata(&daemon.supervision_socket)
-        .expect("supervision socket metadata")
+    let mode = std::fs::metadata(&daemon.meta_socket)
+        .expect("meta socket metadata")
         .permissions()
         .mode()
         & 0o777;
     assert_eq!(mode, 0o600);
 
-    let mut stream = UnixStream::connect(&daemon.supervision_socket).expect("client connects");
-    let codec = SupervisionFrameCodec::new(1024 * 1024);
-
-    codec
-        .write_request(
-            &mut stream,
-            test_frame_exchange(),
-            SupervisionRequest::Announce(Presence {
-                expected_component: ComponentName::new("introspect"),
-                expected_kind: ComponentKind::Introspect,
-                engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
-            }),
-        )
-        .expect("announce writes");
+    let reply = MetaIntrospectClient::new(MetaIntrospectEndpoint::new(&daemon.meta_socket))
+        .submit(MetaIntrospectOperation::Configure(
+            daemon.configuration.clone(),
+        ))
+        .expect("meta client receives reply");
     assert!(matches!(
-        codec.read_reply(&mut stream).expect("identity reply"),
-        SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "introspect"
-                && identity.kind == ComponentKind::Introspect
+        reply,
+        MetaIntrospectReply::RequestUnimplemented(unimplemented)
+            if unimplemented.operation == MetaIntrospectOperationKind::Configure
+                && unimplemented.reason == UnimplementedReason::NotBuiltYet
     ));
+}
 
-    codec
-        .write_request(
-            &mut stream,
-            test_frame_exchange(),
-            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
-                "introspect",
-            ))),
-        )
-        .expect("readiness writes");
-    assert!(matches!(
-        codec.read_reply(&mut stream).expect("readiness reply"),
-        SupervisionReply::Ready(_)
-    ));
+#[test]
+fn introspect_cli_reaches_working_socket_and_prints_typed_witness() {
+    let daemon = DaemonProcess::spawn();
+    let output = Command::new(env!("CARGO_BIN_EXE_introspect"))
+        .env("INTROSPECT_SOCKET", &daemon.introspect_socket)
+        .arg("(PrototypeWitness (prototype))")
+        .output()
+        .expect("run introspect cli");
 
-    codec
-        .write_request(
-            &mut stream,
-            test_frame_exchange(),
-            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
-                "introspect",
-            ))),
-        )
-        .expect("health writes");
-    assert!(matches!(
-        codec.read_reply(&mut stream).expect("health reply"),
-        SupervisionReply::HealthReport(report)
-            if report.health == ComponentHealth::Running
-    ));
+    assert!(
+        output.status.success(),
+        "introspect cli failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("introspect cli stdout is utf8");
+    assert!(
+        stdout.contains("PrototypeWitness"),
+        "unexpected stdout: {stdout}"
+    );
+    assert!(stdout.contains("prototype"), "unexpected stdout: {stdout}");
+}
+
+#[test]
+fn meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection() {
+    let daemon = DaemonProcess::spawn();
+    let request = MetaIntrospectOperation::Configure(daemon.configuration.clone()).to_nota();
+    let output = Command::new(env!("CARGO_BIN_EXE_meta-introspect"))
+        .env("INTROSPECT_META_SOCKET", &daemon.meta_socket)
+        .arg(request)
+        .output()
+        .expect("run meta-introspect cli");
+
+    assert!(
+        output.status.success(),
+        "meta-introspect cli failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("meta-introspect cli stdout is utf8");
+    assert!(
+        stdout.contains("RequestUnimplemented"),
+        "unexpected stdout: {stdout}"
+    );
+    assert!(stdout.contains("Configure"), "unexpected stdout: {stdout}");
 }
 
 fn write_configuration(path: &Path, configuration: &IntrospectDaemonConfiguration) {
@@ -259,14 +263,6 @@ fn write_configuration(path: &Path, configuration: &IntrospectDaemonConfiguratio
     std::fs::write(path, bytes.as_slice()).expect("write binary introspect config");
     // Witness the round-trip the daemon performs at startup.
     let _ = IntrospectionDaemonConfiguration::new(configuration.clone());
-}
-
-fn test_frame_exchange() -> FrameExchangeIdentifier {
-    FrameExchangeIdentifier::new(
-        FrameSessionEpoch::new(1),
-        FrameExchangeLane::Connector,
-        FrameLaneSequence::new(1),
-    )
 }
 
 fn wait_for_socket(socket: &Path) {
@@ -283,12 +279,12 @@ fn wait_for_socket(socket: &Path) {
 fn daemon_configuration(
     directory: &Path,
     socket: &Path,
-    supervision_socket: &Path,
+    meta_socket: &Path,
 ) -> IntrospectDaemonConfiguration {
     IntrospectDaemonConfiguration {
         introspect_socket_path: WirePath::new(socket.display().to_string()),
         introspect_socket_mode: WireSocketMode::new(0o600),
-        supervision_socket_path: WirePath::new(supervision_socket.display().to_string()),
+        supervision_socket_path: WirePath::new(meta_socket.display().to_string()),
         supervision_socket_mode: WireSocketMode::new(0o600),
         store_path: WirePath::new(directory.join("introspect.sema").display().to_string()),
         // The prototype daemon has no live peers in this harness; an empty wire

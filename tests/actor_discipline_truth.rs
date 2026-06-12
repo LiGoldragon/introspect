@@ -17,13 +17,11 @@ use introspect::runtime::{
     TerminalClient,
 };
 use introspect::store::IntrospectionStore;
-use introspect::supervision::SupervisionPhase;
 
 #[test]
 fn public_actor_nouns_carry_data() {
     assert!(std::mem::size_of::<IntrospectionRoot>() > 0);
     assert!(std::mem::size_of::<IntrospectionStore>() > 0);
-    assert!(std::mem::size_of::<SupervisionPhase>() > 0);
     assert!(std::mem::size_of::<TargetDirectory>() > 0);
     assert!(std::mem::size_of::<QueryPlanner>() > 0);
     assert!(std::mem::size_of::<ManagerClient>() > 0);

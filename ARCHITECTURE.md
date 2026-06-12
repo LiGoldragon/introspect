@@ -15,6 +15,7 @@ fact.
 
 - `introspect-daemon`
 - `introspect` CLI
+- `meta-introspect` CLI
 - Kameo actors for query planning, target directory, target clients, NOTA
   projection, and `IntrospectionStore` (state-bearing local store).
 - `ManagerClient`, `RouterClient`, `TerminalClient` — Kameo actors
@@ -99,11 +100,13 @@ graph TD
 |---|---|
 | The daemon does not open peer database files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
 | The daemon consumes `introspect.sema` through `sema-engine`. | `tests/store.rs`: root-handled requests persist a typed observation record, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
-| `introspect-daemon` starts from binary Signal configuration, not NOTA. | `tests/daemon.rs`: rkyv configuration file is accepted by the real process entrypoint; inline NOTA and `.nota` files are rejected by `IntrospectDaemonCommand`. |
+| `introspect-daemon` starts from binary Signal configuration, not NOTA. | `tests/daemon.rs`: rkyv configuration file is accepted by the real process entrypoint; inline NOTA and `.nota` files are rejected by the generated `DaemonCommand<IntrospectionDaemon>`. |
+| The working and meta CLIs each take one NOTA argument or NOTA file and speak only to daemon sockets. | `tests/daemon.rs::introspect_cli_reaches_working_socket_and_prints_typed_witness`; `tests/daemon.rs::meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection`. |
 | The CLI renders NOTA only at the edge. | CLI and projection tests; component clients return typed Signal replies; no daemon-local shadow NOTA codec is used in the runtime path. |
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
-| The daemon applies the managed spawn-envelope socket mode. | `checks.*.test-daemon-applies-spawn-envelope-socket-mode`. |
+| The daemon applies the configured working and owner-meta socket modes. | `checks.*.test-daemon-applies-configured-socket-mode`; `checks.*.test-daemon-answers-typed-meta-policy-relation`. |
+| The meta socket speaks `meta-signal-introspect`, not the older supervision relation. | `tests/daemon.rs::daemon_answers_typed_meta_policy_relation` sends `Operation::Configure` and receives typed `RequestUnimplemented(NotBuiltYet)`. |
 | Component observations remain component-owned. | Dependency graph: wraps `signal-introspect`; target observation records come from each peer's own contract (`signal-router`, `signal-terminal`, `signal-engine-management`, etc.). |
 | Every `IntrospectionRequest` variant arrives as a contract-local operation head. | `signal-introspect` declares the operation heads and the daemon codec accepts one typed `signal-frame` payload per request. Sema classification remains daemon-internal. |
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot router observation query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
@@ -118,7 +121,10 @@ graph TD
 
 The daemon binds a Unix socket, applies the requested socket mode
 when supplied, and serves `signal-introspect` frames
-through the Kameo root. `IntrospectionStore` consumes
+through the Kameo root. It also binds the owner meta socket and serves
+`meta-signal-introspect` frames; `Configure` is admitted to the wire but
+returns typed `RequestUnimplemented(NotBuiltYet)` until hot reconfiguration
+has a reducer. `IntrospectionStore` consumes
 `introspect.sema` via `sema-engine`; the query/reply audit trail
 is persisted as typed records through `Engine::assert`.
 

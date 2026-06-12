@@ -18,6 +18,8 @@ pub enum Error {
     },
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
+    #[error("triad runtime frame: {0}")]
+    TriadRuntimeFrame(#[from] triad_runtime::FrameError),
     #[error("sema-engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
     #[error("nota decode: {0}")]
@@ -37,6 +39,11 @@ pub enum Error {
     },
     #[error("configuration write failed at {path}: {source}")]
     ConfigurationWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("NOTA file read failed at {path}: {source}")]
+    NotaFileRead {
         path: PathBuf,
         source: std::io::Error,
     },

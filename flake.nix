@@ -31,7 +31,18 @@
           "rust-src"
         ];
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-        src = craneLib.cleanCargoSource ./.;
+        schemaFilter =
+          path: type:
+          (type == "regular" || type == "directory")
+          && (builtins.match ".*/schema(/.*)?" path != null);
+        sourceFilter =
+          path: type:
+          (craneLib.filterCargoSources path type) || (schemaFilter path type);
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = sourceFilter;
+          name = "source";
+        };
         commonArgs = {
           inherit src;
           strictDeps = true;
@@ -64,18 +75,32 @@
               cargoTestExtraArgs = "--test actor_runtime_truth prototype_witness_queries_live_router_summary_socket -- --exact";
             }
           );
-          test-daemon-applies-spawn-envelope-socket-mode = craneLib.cargoTest (
+          test-daemon-applies-configured-socket-mode = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test daemon daemon_applies_spawn_envelope_socket_mode -- --exact";
+              cargoTestExtraArgs = "--test daemon daemon_applies_configured_socket_mode -- --exact";
             }
           );
-          test-daemon-answers-component-supervision-relation = craneLib.cargoTest (
+          test-daemon-answers-typed-meta-policy-relation = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test daemon daemon_answers_component_supervision_relation -- --exact";
+              cargoTestExtraArgs = "--test daemon daemon_answers_typed_meta_policy_relation -- --exact";
+            }
+          );
+          test-introspect-cli-reaches-working-socket = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test daemon introspect_cli_reaches_working_socket_and_prints_typed_witness -- --exact";
+            }
+          );
+          test-meta-introspect-cli-reaches-policy-socket = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test daemon meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection -- --exact";
             }
           );
           test-introspection-store-uses-sema-engine = craneLib.cargoTest (

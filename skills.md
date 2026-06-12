@@ -21,6 +21,7 @@ Before changing code in this repo, read:
 
 - `introspect-daemon`
 - `introspect` CLI
+- `meta-introspect` CLI
 - Runtime fan-out to component daemons over Signal.
 - Local observation audit state in `introspect.sema`, opened through
   `sema-engine`.
@@ -28,6 +29,9 @@ Before changing code in this repo, read:
   `IntrospectDaemonConfiguration` file. Inline NOTA and `.nota`
   startup files are rejected.
 - NOTA projection at the CLI edge.
+- The ordinary CLI uses `INTROSPECT_SOCKET` and the meta CLI uses
+  `INTROSPECT_META_SOCKET`; both are thin one-argument clients over the
+  daemon sockets.
 
 ## What this repo does not own
 

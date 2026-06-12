@@ -237,9 +237,10 @@ dependencies = [
 
 [[package]]
 name = "introspect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kameo",
+ "meta-signal-introspect",
  "nota-next",
  "rkyv",
  "schema-rust-next",
@@ -330,6 +331,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
+name = "meta-signal-introspect"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?branch=main#5518b8d9c9c45950d0ca6e68ecf48817b0015879"
+dependencies = [
+ "nota-next",
+ "rkyv",
+ "signal-frame",
+ "signal-introspect",
+ "thiserror",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -362,8 +375,8 @@ dependencies = [
 
 [[package]]
 name = "nota-next"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#ae5c25cd42b65512be941b274922c9e17bf67176"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
 dependencies = [
  "nota-next-derive",
  "rkyv",
@@ -372,7 +385,7 @@ dependencies = [
 [[package]]
 name = "nota-next-derive"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#ae5c25cd42b65512be941b274922c9e17bf67176"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -529,8 +542,8 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "schema-next"
-version = "0.1.4"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#77e71a410d03e3cc5c16cebd82202e712439e648"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#2397d5b2a4a8f35da1ba5957f48337f9a579db00"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -538,8 +551,8 @@ dependencies = [
 
 [[package]]
 name = "schema-rust-next"
-version = "0.5.1"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#7282446ed3f41663d9e9ef1753a9a2b3514cf829"
+version = "0.5.3"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#cedb2e0652b2d8e3aa24c96a82b6daee6af785ad"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -657,8 +670,8 @@ dependencies = [
 
 [[package]]
 name = "signal-message"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#6a29eb1999f35a1f0d0c60ebe2cade3a5eee2d59"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#ef73a85b96ceb37072050b93dd6756f2f9857172"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -670,7 +683,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#3d8f7eac1eb0a077d9ccb0d83a409b4a7be0b38c"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#ae9cf2629471097dd81e805e704c5da94ba4b16a"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -679,8 +692,8 @@ dependencies = [
 
 [[package]]
 name = "signal-router"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#a014a33a7edd9ec8b465b932552df41d6ab7a84a"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#0c1ec5000a0f7e4215c89a89578b071ae0ef4f23"
 dependencies = [
  "rkyv",
  "schema-rust-next",
@@ -838,8 +851,8 @@ dependencies = [
 
 [[package]]
 name = "triad-runtime"
-version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#ae2e81755f8f1536329f372bdcc78dbbcd065999"
+version = "0.6.1"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#6ea831627d13793a4c42d7f9b9174b47279a9b2b"
 dependencies = [
  "kameo",
  "rustix",

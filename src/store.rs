@@ -30,12 +30,10 @@ impl StoreLocation {
         Self { path: path.into() }
     }
 
-    /// CLI convenience — the `introspect` CLI (which may run an
-    /// in-process root for local-only queries) may discover the
-    /// introspection store via `PERSONA_INTROSPECT_STORE` or
-    /// `PERSONA_STATE_PATH` as a last-resort fallback. **Not for the
-    /// daemon's production launch path** — the daemon opens the store
-    /// path supplied by `IntrospectDaemonConfiguration.store_path`.
+    /// Local tooling convenience: callers outside the daemon startup path may
+    /// discover an ad hoc introspection store via `PERSONA_INTROSPECT_STORE` or
+    /// `PERSONA_STATE_PATH`. The daemon opens only the store path supplied by
+    /// `IntrospectDaemonConfiguration.store_path`.
     pub fn from_environment() -> Self {
         match std::env::var_os("PERSONA_INTROSPECT_STORE") {
             Some(path) => Self::new(path),
@@ -110,7 +108,7 @@ impl IntrospectionStore {
             .engine
             .match_records(QueryPlan::key_range(
                 self.delivery_trace_events,
-                delivery_trace_query_range(&query),
+                DeliveryTraceQueryRange::from_query(&query).into_range(),
             ))?
             .records()
             .iter()
@@ -317,43 +315,92 @@ impl StoredDeliveryTraceEvent {
 
 impl EngineRecord for StoredDeliveryTraceEvent {
     fn record_key(&self) -> RecordKey {
-        delivery_trace_event_key(&self.event)
+        DeliveryTraceEventRecordKey::from_event(&self.event).into_record_key()
     }
 }
 
-fn delivery_trace_event_key(event: &DeliveryTraceEvent) -> RecordKey {
-    let key = event.key();
-    let join_key = delivery_trace_join_key_prefix(&key.join_key());
-    RecordKey::new(format!("{}/{:010}", join_key, key.hop_index.value()))
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveryTraceEventRecordKey {
+    event: DeliveryTraceEvent,
 }
 
-fn delivery_trace_query_range(query: &DeliveryTraceQuery) -> KeyRange {
-    let prefix = delivery_trace_join_key_prefix(&query.join_key());
-    KeyRange::between(
-        RecordKey::new(format!("{prefix}/")),
-        RecordKey::new(format!("{prefix}/~")),
-    )
+impl DeliveryTraceEventRecordKey {
+    fn from_event(event: &DeliveryTraceEvent) -> Self {
+        Self {
+            event: event.clone(),
+        }
+    }
+
+    fn into_record_key(self) -> RecordKey {
+        let key = self.event.key();
+        let join_key = DeliveryTraceJoinKeyPrefix::from_join_key(&key.join_key()).into_string();
+        RecordKey::new(format!("{}/{:010}", join_key, key.hop_index.value()))
+    }
 }
 
-fn delivery_trace_join_key_prefix(key: &DeliveryTraceJoinKey) -> String {
-    format!(
-        "{}/{}/{}",
-        key.engine.as_str(),
-        key.message_identifier.clone().into_u64(),
-        component_name(key.originator)
-    )
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveryTraceQueryRange {
+    query: DeliveryTraceQuery,
 }
 
-fn component_name(component: ComponentName) -> &'static str {
-    match component {
-        ComponentName::Mind => "Mind",
-        ComponentName::Message => "Message",
-        ComponentName::Router => "Router",
-        ComponentName::Terminal => "Terminal",
-        ComponentName::Harness => "Harness",
-        ComponentName::System => "System",
-        ComponentName::Introspect => "Introspect",
-        ComponentName::Orchestrate => "Orchestrate",
-        ComponentName::Spirit => "Spirit",
+impl DeliveryTraceQueryRange {
+    fn from_query(query: &DeliveryTraceQuery) -> Self {
+        Self {
+            query: query.clone(),
+        }
+    }
+
+    fn into_range(self) -> KeyRange {
+        let prefix =
+            DeliveryTraceJoinKeyPrefix::from_join_key(&self.query.join_key()).into_string();
+        KeyRange::between(
+            RecordKey::new(format!("{prefix}/")),
+            RecordKey::new(format!("{prefix}/~")),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveryTraceJoinKeyPrefix {
+    key: DeliveryTraceJoinKey,
+}
+
+impl DeliveryTraceJoinKeyPrefix {
+    fn from_join_key(key: &DeliveryTraceJoinKey) -> Self {
+        Self { key: key.clone() }
+    }
+
+    fn into_string(self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.key.engine.as_str(),
+            self.key.message_identifier.clone().into_u64(),
+            ComponentNameText::new(self.key.originator).as_str()
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ComponentNameText {
+    component: ComponentName,
+}
+
+impl ComponentNameText {
+    fn new(component: ComponentName) -> Self {
+        Self { component }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self.component {
+            ComponentName::Mind => "Mind",
+            ComponentName::Message => "Message",
+            ComponentName::Router => "Router",
+            ComponentName::Terminal => "Terminal",
+            ComponentName::Harness => "Harness",
+            ComponentName::System => "System",
+            ComponentName::Introspect => "Introspect",
+            ComponentName::Orchestrate => "Orchestrate",
+            ComponentName::Spirit => "Spirit",
+        }
     }
 }

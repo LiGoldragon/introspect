@@ -15,8 +15,8 @@ use signal_introspect::{
 };
 use signal_persona::origin::EngineIdentifier;
 use signal_router::{
-    Frame as RouterFrame, FrameBody as RouterFrameBody, Input as RouterRequest,
-    Output as RouterReply, RouterSummaryQuery,
+    EngineIdentifier as RouterEngineIdentifier, Frame as RouterFrame, FrameBody as RouterFrameBody,
+    Input as RouterRequest, Output as RouterReply, RouterSummaryQuery,
 };
 
 use crate::error::{Error, Result};
@@ -384,15 +384,54 @@ impl RouterClient {
         let mut stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = RouterRequest::Summary(RouterSummaryQuery::new(engine.as_str().to_owned()));
+        let request = RouterRequest::Summary(RouterSummaryQuery::new(RouterEngineIdentifier::new(
+            engine.as_str().to_owned(),
+        )));
         let frame = RouterFrame::new(RouterFrameBody::Request {
-            exchange: router_exchange(),
+            exchange: Self::router_exchange(),
             request: request.into_request(),
         });
         stream.write_all(&frame.encode_length_prefixed()?)?;
         stream.flush()?;
         let reply = RouterClientFrameCodec::default().read_frame(&mut stream)?;
-        router_summary_readiness(engine, reply)
+        Self::router_summary_readiness(engine, reply)
+    }
+
+    fn router_exchange() -> ExchangeIdentifier {
+        ExchangeIdentifier::new(
+            SessionEpoch::new(1),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
+    }
+
+    fn router_summary_readiness(
+        expected_engine: EngineIdentifier,
+        frame: RouterFrame,
+    ) -> Result<Option<ComponentReadiness>> {
+        match frame.into_body() {
+            RouterFrameBody::Reply { reply, .. } => match reply {
+                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
+                    SubReply::Ok(RouterReply::Summary(summary)) => {
+                        if summary.engine.payload() == expected_engine.as_str() {
+                            Ok(Some(ComponentReadiness::Ready))
+                        } else {
+                            Ok(Some(ComponentReadiness::NotReady))
+                        }
+                    }
+                    SubReply::Ok(RouterReply::Unimplemented(_)) => Ok(None),
+                    other => Err(Error::UnexpectedRouterObservationReply {
+                        got: format!("{other:?}"),
+                    }),
+                },
+                Reply::Rejected { reason } => Err(Error::UnexpectedRouterObservationReply {
+                    got: reason.to_string(),
+                }),
+            },
+            other => Err(Error::UnexpectedRouterObservationReply {
+                got: format!("{other:?}"),
+            }),
+        }
     }
 }
 
@@ -464,43 +503,6 @@ impl RouterClientFrameCodec {
 impl Default for RouterClientFrameCodec {
     fn default() -> Self {
         Self::new(1024 * 1024)
-    }
-}
-
-fn router_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(1),
-        ExchangeLane::Connector,
-        LaneSequence::first(),
-    )
-}
-
-fn router_summary_readiness(
-    expected_engine: EngineIdentifier,
-    frame: RouterFrame,
-) -> Result<Option<ComponentReadiness>> {
-    match frame.into_body() {
-        RouterFrameBody::Reply { reply, .. } => match reply {
-            Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                SubReply::Ok(RouterReply::Summary(summary)) => {
-                    if summary.engine == expected_engine.as_str() {
-                        Ok(Some(ComponentReadiness::Ready))
-                    } else {
-                        Ok(Some(ComponentReadiness::NotReady))
-                    }
-                }
-                SubReply::Ok(RouterReply::Unimplemented(_)) => Ok(None),
-                other => Err(Error::UnexpectedRouterObservationReply {
-                    got: format!("{other:?}"),
-                }),
-            },
-            Reply::Rejected { reason } => Err(Error::UnexpectedRouterObservationReply {
-                got: reason.to_string(),
-            }),
-        },
-        other => Err(Error::UnexpectedRouterObservationReply {
-            got: format!("{other:?}"),
-        }),
     }
 }
 
