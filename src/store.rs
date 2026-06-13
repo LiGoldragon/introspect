@@ -5,8 +5,9 @@ use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema_engine::{
-    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, KeyRange, QueryPlan, RecordKey,
-    SchemaVersion, SnapshotIdentifier, TableDescriptor, TableName, TableReference,
+    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, FamilyName, KeyRange, QueryPlan,
+    RecordKey, SchemaHash, SchemaVersion, SnapshotIdentifier, TableDescriptor, TableName,
+    TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
@@ -19,6 +20,8 @@ use crate::Result;
 const INTROSPECTION_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(2);
 const OBSERVATIONS: TableName = TableName::new("introspection_observations");
 const DELIVERY_TRACE_EVENTS: TableName = TableName::new("delivery_trace_events");
+const OBSERVATIONS_FAMILY: &str = "introspection-observation";
+const DELIVERY_TRACE_EVENTS_FAMILY: &str = "delivery-trace-event";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreLocation {
@@ -57,18 +60,41 @@ pub struct IntrospectionStore {
 
 impl IntrospectionStore {
     pub fn open(store: &StoreLocation) -> Result<Self> {
-        let mut engine = Engine::open(EngineOpen::new(
-            store.as_path(),
-            INTROSPECTION_SCHEMA_VERSION,
+        let mut engine = Engine::open(Self::engine_open(store.as_path()))?;
+        let observations =
+            engine.register_table(Self::family_descriptor(OBSERVATIONS, OBSERVATIONS_FAMILY))?;
+        let delivery_trace_events = engine.register_table(Self::family_descriptor(
+            DELIVERY_TRACE_EVENTS,
+            DELIVERY_TRACE_EVENTS_FAMILY,
         ))?;
-        let observations = engine.register_table(TableDescriptor::new(OBSERVATIONS))?;
-        let delivery_trace_events =
-            engine.register_table(TableDescriptor::new(DELIVERY_TRACE_EVENTS))?;
         Ok(Self {
             engine,
             observations,
             delivery_trace_events,
         })
+    }
+
+    fn engine_open(path: &Path) -> EngineOpen {
+        EngineOpen::new(path.to_path_buf(), INTROSPECTION_SCHEMA_VERSION)
+            .with_versioning(Self::versioning_policy())
+    }
+
+    fn versioning_policy() -> VersioningPolicy {
+        VersioningPolicy::new(VersionedStoreName::new("introspect"))
+    }
+
+    fn family_descriptor<RecordValue>(
+        table: TableName,
+        family: &str,
+    ) -> TableDescriptor<RecordValue> {
+        TableDescriptor::new(
+            table,
+            FamilyName::new(family),
+            SchemaHash::for_label(format!(
+                "introspect-{family}-v{}",
+                INTROSPECTION_SCHEMA_VERSION.value()
+            )),
+        )
     }
 
     pub fn record_observation(&self, observation: StoredObservation) -> Result<ObservationReceipt> {
