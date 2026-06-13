@@ -390,7 +390,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?branch=main#0292523a1852750b636f568fe99b599ebd328853"
+source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?branch=main#aa9d830001eae06b0b69d25987203e2e1b2aae4c"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -610,7 +610,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#7c15bc3fa3d07f4710acca16f14eef1aa68b02dd"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#00763d676d63395d45b5f8a81dbf9a2287574ca9"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -723,7 +723,7 @@ dependencies = [
 [[package]]
 name = "signal-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=main#10c8d91170a6154300945dc3eae7a5fb92772496"
+source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=main#773ccc0012637b1809fac2287d91c9427fc8a6ef"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -758,7 +758,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#5ab83f0e8e180d9471a50a9a700095ed41136dfd"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#023a7f835edacf847894e7f3fde314bf217d0923"
 dependencies = [
  "rkyv",
  "schema-rust-next",
