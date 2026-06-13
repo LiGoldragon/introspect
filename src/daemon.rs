@@ -118,7 +118,7 @@ impl IntrospectionEngine {
 
 /// Introspect's binary startup configuration, wrapping the typed
 /// `IntrospectDaemonConfiguration` from `signal-introspect` with the
-/// `triad_runtime::DaemonConfiguration` projection the emitted shell drives:
+/// `triad_runtime::BindingSurface` projection the emitted shell drives:
 /// the working socket is the introspection-query socket, the meta socket is the
 /// owner-only `meta-signal-introspect` socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
