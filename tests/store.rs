@@ -4,6 +4,7 @@ use introspect::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use introspect::store::{IntrospectionStore, StoreLocation};
+use sema_engine::RecordKey;
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
     DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
@@ -92,7 +93,10 @@ fn introspection_root_records_observations_through_sema_engine() {
     let operation = operation_log[0].operations().head();
     assert_eq!(operation.operation().as_record_head(), "Assert");
     assert_eq!(operation.table_name(), "introspection_observations");
-    assert_eq!(operation.key().map(|key| key.as_str()), Some("1"));
+    assert!(matches!(
+        operation.key(),
+        Some(RecordKey::Domain(key)) if key == "1"
+    ));
 }
 
 #[test]
