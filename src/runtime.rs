@@ -13,7 +13,7 @@ use signal_introspect::{
     ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
-use signal_persona::origin::EngineIdentifier;
+use signal_persona::EngineIdentifier;
 use signal_router::{
     EngineIdentifier as RouterEngineIdentifier, Frame as RouterFrame, FrameBody as RouterFrameBody,
     Input as RouterRequest, Output as RouterReply, RouterSummaryQuery,
@@ -119,14 +119,14 @@ impl IntrospectionRoot {
         match request {
             IntrospectionRequest::EngineSnapshot(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                Ok(IntrospectionReply::EngineSnapshot(EngineSnapshot {
-                    engine: query.engine,
-                    observed_components: vec![
+                Ok(IntrospectionReply::EngineSnapshot(EngineSnapshot::new(
+                    query.engine,
+                    vec![
                         IntrospectionTarget::EngineManager,
                         IntrospectionTarget::Router,
                         IntrospectionTarget::Terminal,
                     ],
-                }))
+                )))
             }
             IntrospectionRequest::ComponentSnapshot(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
@@ -385,7 +385,7 @@ impl RouterClient {
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = RouterRequest::Summary(RouterSummaryQuery::new(RouterEngineIdentifier::new(
-            engine.as_str().to_owned(),
+            engine.payload().clone(),
         )));
         let frame = RouterFrame::new(RouterFrameBody::Request {
             exchange: Self::router_exchange(),
@@ -413,7 +413,7 @@ impl RouterClient {
             RouterFrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
                     SubReply::Ok(RouterReply::Summary(summary)) => {
-                        if summary.engine.payload() == expected_engine.as_str() {
+                        if summary.engine.payload() == expected_engine.payload().as_str() {
                             Ok(Some(ComponentReadiness::Ready))
                         } else {
                             Ok(Some(ComponentReadiness::NotReady))

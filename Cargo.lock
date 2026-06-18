@@ -433,7 +433,7 @@ dependencies = [
 [[package]]
 name = "nota-next"
 version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#7426a6a7d60d6e37ac40df4ecc98717af58129f8"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#7105c2be36067cb3d5b8f744aaf628ffdac7a112"
 dependencies = [
  "nota-next-derive",
  "rkyv",
@@ -442,7 +442,7 @@ dependencies = [
 [[package]]
 name = "nota-next-derive"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#7426a6a7d60d6e37ac40df4ecc98717af58129f8"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#7105c2be36067cb3d5b8f744aaf628ffdac7a112"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -600,7 +600,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3be7d0f9161cc01353cfecd0cc0a17678b5030a"
 dependencies = [
  "nota-next",
  "prettyplease",
@@ -613,7 +613,7 @@ dependencies = [
 [[package]]
 name = "schema-next"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#b3be7d0f9161cc01353cfecd0cc0a17678b5030a"
 dependencies = [
  "blake3",
  "nota-next",
@@ -625,7 +625,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#6e04d70ff679181938c50b6a5488035efa0979b8"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#bb4dfe293e03e64e89f899621cc5dfa5bff6958e"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -716,7 +716,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "signal-frame"
 version = "0.2.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#e2eae5c28dac47eea6c4c641b60c4fd27bb547d8"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b0c2c65c3da5117caa01819655de9952c4a0710c"
 dependencies = [
  "nota-next",
  "paste",
@@ -728,7 +728,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#e2eae5c28dac47eea6c4c641b60c4fd27bb547d8"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b0c2c65c3da5117caa01819655de9952c4a0710c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -738,7 +738,7 @@ dependencies = [
 [[package]]
 name = "signal-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=main#f4e4c6530e4f948c4b37a0b16edb766f25df17ed"
+source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=main#47a4f76c4c0f55bfaad103f9d354b285c2961efa"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -751,7 +751,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#2e9c9cca1058bbb83706f329c2e51be18a4ef1f5"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=main#97d9b14e2f8d607d21b95f924a77b990c195d644"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -762,18 +762,19 @@ dependencies = [
 
 [[package]]
 name = "signal-persona"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#5953c8fc98b81e06034ebffbf8bc92d216de4777"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#b4c66501f1b81e80fccd34211b023b72a139fa29"
 dependencies = [
  "nota-next",
  "rkyv",
+ "schema-rust-next",
  "signal-frame",
 ]
 
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#81221e0a24ffec5eb2a7915151c3742dc25c62f1"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=main#e36e773d165d0a996208b7702d14416c559539c6"
 dependencies = [
  "rkyv",
  "schema-rust-next",

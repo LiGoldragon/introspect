@@ -176,7 +176,7 @@ impl triad_runtime::BindingSurface for IntrospectionDaemonConfiguration {
 
     fn socket_mode(&self) -> Option<SocketMode> {
         Some(SocketMode::new(
-            self.configuration.introspect_socket_mode.into_u32(),
+            *self.configuration.introspect_socket_mode.payload() as u32,
         ))
     }
 
@@ -192,7 +192,7 @@ impl triad_runtime::BindingSurface for IntrospectionDaemonConfiguration {
 
     fn meta_socket_mode(&self) -> Option<SocketMode> {
         Some(SocketMode::new(
-            self.configuration.supervision_socket_mode.into_u32(),
+            *self.configuration.supervision_socket_mode.payload() as u32,
         ))
     }
 

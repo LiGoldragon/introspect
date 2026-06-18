@@ -3,7 +3,7 @@ use signal_introspect::{
     ComponentReadiness, DeliveryTraceStatus, IntrospectionReply,
     PrototypeWitness as SignalPrototypeWitness,
 };
-use signal_persona::origin::EngineIdentifier;
+use signal_persona::EngineIdentifier;
 
 #[test]
 fn command_surface_uses_contract_text_codec() {

@@ -13,7 +13,6 @@ use signal_introspect::{
     DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey, DeliveryTraceQuery,
     IntrospectionReply, IntrospectionRequest,
 };
-use signal_persona::origin::ComponentName;
 
 use crate::Result;
 
@@ -142,12 +141,12 @@ impl IntrospectionStore {
             .map(|stored_event| stored_event.event().clone())
             .collect::<Vec<_>>();
         events.sort_by_key(|event| event.key().hop_index);
-        Ok(DeliveryTrace {
-            engine: query.engine,
-            message_identifier: query.message_identifier,
-            originator: query.originator,
+        Ok(DeliveryTrace::new(
+            query.engine,
+            query.message_identifier,
+            query.originator,
             events,
-        })
+        ))
     }
 
     pub fn operation_log(&self) -> Result<Vec<CommitLogEntry>> {
@@ -399,34 +398,9 @@ impl DeliveryTraceJoinKeyPrefix {
     fn into_string(self) -> String {
         format!(
             "{}/{}/{}",
-            self.key.engine.as_str(),
+            self.key.engine.payload().as_str(),
             self.key.message_identifier.clone().into_u64(),
-            ComponentNameText::new(self.key.originator).as_str()
+            self.key.originator.as_ref()
         )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ComponentNameText {
-    component: ComponentName,
-}
-
-impl ComponentNameText {
-    fn new(component: ComponentName) -> Self {
-        Self { component }
-    }
-
-    fn as_str(&self) -> &'static str {
-        match self.component {
-            ComponentName::Mind => "Mind",
-            ComponentName::Message => "Message",
-            ComponentName::Router => "Router",
-            ComponentName::Terminal => "Terminal",
-            ComponentName::Harness => "Harness",
-            ComponentName::System => "System",
-            ComponentName::Introspect => "Introspect",
-            ComponentName::Orchestrate => "Orchestrate",
-            ComponentName::Spirit => "Spirit",
-        }
     }
 }

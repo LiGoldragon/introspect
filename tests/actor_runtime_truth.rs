@@ -10,7 +10,7 @@ use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch, SubReply,
 };
 use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
-use signal_persona::origin::EngineIdentifier;
+use signal_persona::EngineIdentifier;
 use signal_router::{
     EngineIdentifier as RouterEngineIdentifier, Frame as RouterFrame, FrameBody as RouterFrameBody,
     Input as RouterRequest, Output as RouterReply, RouterSummary,

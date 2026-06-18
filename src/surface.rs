@@ -1,7 +1,7 @@
 use nota_next::{NotaDecode, NotaEncode, NotaSource};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_introspect::{IntrospectionReply, PrototypeWitnessQuery as SignalPrototypeWitnessQuery};
-use signal_persona::origin::EngineIdentifier;
+use signal_persona::EngineIdentifier;
 
 #[derive(
     Archive, RkyvSerialize, RkyvDeserialize, NotaEncode, NotaDecode, Debug, Clone, PartialEq, Eq,

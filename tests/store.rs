@@ -10,7 +10,7 @@ use signal_introspect::{
     DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
     IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
 };
-use signal_persona::origin::{ComponentName, EngineIdentifier};
+use signal_persona::{ComponentName, EngineIdentifier};
 
 struct IntrospectionStoreFixture {
     directory: tempfile::TempDir,
@@ -146,7 +146,7 @@ fn every_introspection_request_variant_persists_through_actor_root_and_sema_engi
         IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
             engine: engine.clone(),
             message_identifier: MessageIdentifier::new(7),
-            originator: ComponentName::Message,
+            originator: component_name("Message"),
         }),
         IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
             engine: engine.clone(),
@@ -215,38 +215,38 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         .expect("root starts");
     let engine = EngineIdentifier::new("prototype");
     let message_identifier = MessageIdentifier::new(7);
-    let originator = ComponentName::Message;
+    let originator = component_name("Message");
     let events = vec![
         trace_event(
             engine.clone(),
             message_identifier.clone(),
-            originator,
+            originator.clone(),
             2,
-            ComponentName::Router,
+            component_name("Router"),
             DeliveryTraceStatus::Routed,
         ),
         trace_event(
             engine.clone(),
             message_identifier.clone(),
-            originator,
+            originator.clone(),
             0,
-            ComponentName::Message,
+            component_name("Message"),
             DeliveryTraceStatus::Accepted,
         ),
         trace_event(
             engine.clone(),
             message_identifier.clone(),
-            originator,
+            originator.clone(),
             3,
-            ComponentName::Harness,
+            component_name("Harness"),
             DeliveryTraceStatus::Failed,
         ),
         trace_event(
             engine.clone(),
             message_identifier.clone(),
-            originator,
+            originator.clone(),
             1,
-            ComponentName::Mind,
+            component_name("Mind"),
             DeliveryTraceStatus::Routed,
         ),
     ];
@@ -255,17 +255,17 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         trace_event(
             engine.clone(),
             MessageIdentifier::new(8),
-            originator,
+            originator.clone(),
             0,
-            ComponentName::Message,
+            component_name("Message"),
             DeliveryTraceStatus::Accepted,
         ),
         trace_event(
             engine.clone(),
             message_identifier.clone(),
-            ComponentName::Harness,
+            component_name("Harness"),
             0,
-            ComponentName::Harness,
+            component_name("Harness"),
             DeliveryTraceStatus::Accepted,
         ),
     ];
@@ -281,7 +281,7 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     let request = IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
         engine,
         message_identifier,
-        originator,
+        originator: originator.clone(),
     });
     let reply = runtime
         .block_on(async {
@@ -302,9 +302,9 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     let IntrospectionReply::DeliveryTrace(trace) = reply else {
         panic!("expected delivery trace reply");
     };
-    assert_eq!(trace.events.len(), 4);
+    assert_eq!(trace.events().len(), 4);
     let hops = trace
-        .events
+        .events()
         .iter()
         .map(|event| event.key().hop_index.value())
         .collect::<Vec<_>>();
@@ -365,4 +365,8 @@ fn trace_event(
         component,
         status,
     )
+}
+
+fn component_name(value: &str) -> ComponentName {
+    ComponentName::new(value)
 }

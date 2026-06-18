@@ -24,11 +24,10 @@ use nota_next::NotaEncode;
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
-    PrototypeWitnessQuery,
+    PrototypeWitnessQuery, SocketMode as WireSocketMode, WirePath,
 };
-use signal_persona::origin::{ComponentName as AuthComponentName, EngineIdentifier};
-use signal_persona::origin::{OwnerIdentity, UnixUserIdentifier};
-use signal_persona::{SocketMode as WireSocketMode, WirePath};
+use signal_persona::{ComponentName as AuthComponentName, EngineIdentifier};
+use signal_persona::{OwnerIdentity, UnixUserIdentifier};
 
 /// A running `introspect-daemon` child with both socket paths, torn down on
 /// drop.
@@ -142,17 +141,17 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
             assert_eq!(snapshot.engine, engine);
             assert!(
                 snapshot
-                    .observed_components
+                    .observed_components()
                     .contains(&IntrospectionTarget::EngineManager)
             );
             assert!(
                 snapshot
-                    .observed_components
+                    .observed_components()
                     .contains(&IntrospectionTarget::Router)
             );
             assert!(
                 snapshot
-                    .observed_components
+                    .observed_components()
                     .contains(&IntrospectionTarget::Terminal)
             );
         }
@@ -176,13 +175,13 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
     let delivery_reply = daemon.submit(IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
         engine: EngineIdentifier::new("prototype"),
         message_identifier: MessageIdentifier::new(7),
-        originator: AuthComponentName::Message,
+        originator: component_name("Message"),
     }));
     match delivery_reply {
         IntrospectionReply::DeliveryTrace(trace) => {
             assert_eq!(trace.message_identifier, MessageIdentifier::new(7));
-            assert_eq!(trace.originator, AuthComponentName::Message);
-            assert!(trace.events.is_empty());
+            assert_eq!(trace.originator, component_name("Message"));
+            assert!(trace.events().is_empty());
         }
         other => panic!("expected delivery trace, got {other:?}"),
     }
@@ -295,4 +294,8 @@ fn daemon_configuration(
         terminal_socket_path: WirePath::new(String::new()),
         owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
     }
+}
+
+fn component_name(value: &str) -> AuthComponentName {
+    AuthComponentName::new(value)
 }
