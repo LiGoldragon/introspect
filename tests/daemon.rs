@@ -292,6 +292,9 @@ fn daemon_configuration(
         manager_socket_path: WirePath::new(String::new()),
         router_socket_path: WirePath::new(String::new()),
         terminal_socket_path: WirePath::new(String::new()),
+        // No trace emitter pushes to this harness; an empty wire path disables
+        // component-trace ingestion (mirrors the empty-peer-socket convention).
+        trace_socket_path: WirePath::new(String::new()),
         owner_identity: OwnerIdentity::UnixUser(UnixUserIdentifier::new(1000)),
     }
 }

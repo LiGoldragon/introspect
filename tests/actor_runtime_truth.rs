@@ -115,6 +115,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
                     manager_socket: None,
                     router_socket: Some(router_socket),
                     terminal_socket: None,
+                    trace_socket: None,
                 },
                 store: StoreLocation::new(directory.path().join("introspect.sema")),
             })

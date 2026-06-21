@@ -32,7 +32,7 @@ rkyv                      = "0.8"
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
+signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "trace-introspect-slice" }
 meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "main" }
 signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 thiserror                 = "2"

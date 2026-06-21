@@ -150,6 +150,7 @@ impl IntrospectionDaemonConfiguration {
             manager_socket: Self::peer_socket(self.configuration.manager_socket_path.as_str()),
             router_socket: Self::peer_socket(self.configuration.router_socket_path.as_str()),
             terminal_socket: Self::peer_socket(self.configuration.terminal_socket_path.as_str()),
+            trace_socket: Self::peer_socket(self.configuration.trace_socket_path.as_str()),
         }
     }
 

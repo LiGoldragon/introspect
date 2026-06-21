@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
@@ -10,7 +11,7 @@ use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
 };
 use signal_introspect::{
-    ComponentReadiness, ComponentSnapshot, EngineSnapshot, IntrospectionReply,
+    ComponentReadiness, ComponentSnapshot, ComponentTraceEvent, EngineSnapshot, IntrospectionReply,
     IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
 };
 use signal_persona::EngineIdentifier;
@@ -18,11 +19,14 @@ use signal_router::{
     EngineIdentifier as RouterEngineIdentifier, Frame as RouterFrame, FrameBody as RouterFrameBody,
     Input as RouterRequest, Output as RouterReply, RouterSummaryQuery,
 };
+use tokio::task::JoinHandle;
+use triad_runtime::trace::TraceSocketListener;
 
 use crate::error::{Error, Result};
 use crate::store::{
-    IntrospectionStore, ObservationSequence, ReadDeliveryTrace, RecordDeliveryTraceEvent,
-    RecordObservation, StoreLocation, StoredObservation,
+    IntrospectionStore, ObservationSequence, ReadComponentTrace, ReadDeliveryTrace,
+    RecordComponentTraceEvent, RecordDeliveryTraceEvent, RecordObservation, StoreLocation,
+    StoredObservation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +34,7 @@ pub struct TargetSocketDirectory {
     pub manager_socket: Option<PathBuf>,
     pub router_socket: Option<PathBuf>,
     pub terminal_socket: Option<PathBuf>,
+    pub trace_socket: Option<PathBuf>,
 }
 
 impl TargetSocketDirectory {
@@ -38,6 +43,7 @@ impl TargetSocketDirectory {
             manager_socket: None,
             router_socket: None,
             terminal_socket: None,
+            trace_socket: None,
         }
     }
 }
@@ -49,6 +55,7 @@ pub struct IntrospectionRoot {
     manager_client: ActorRef<ManagerClient>,
     router_client: ActorRef<RouterClient>,
     terminal_client: ActorRef<TerminalClient>,
+    trace_listener: ActorRef<ComponentTraceListener>,
     store: ActorRef<IntrospectionStore>,
     projection: ActorRef<NotaProjection>,
     handled_queries: u64,
@@ -68,6 +75,10 @@ impl IntrospectionRoot {
         let terminal_client =
             TerminalClient::spawn(TerminalClient::new(input.targets.terminal_socket));
         let store = IntrospectionStore::spawn(IntrospectionStore::open(&input.store)?);
+        let trace_listener = ComponentTraceListener::spawn(ComponentTraceListener::new(
+            input.targets.trace_socket,
+            store.clone(),
+        ));
         let projection = NotaProjection::spawn(NotaProjection::new());
         Ok(Self::spawn(Self {
             target_directory,
@@ -75,6 +86,7 @@ impl IntrospectionRoot {
             manager_client,
             router_client,
             terminal_client,
+            trace_listener,
             store,
             projection,
             handled_queries: 0,
@@ -150,6 +162,20 @@ impl IntrospectionRoot {
                 };
                 Ok(IntrospectionReply::DeliveryTrace(trace))
             }
+            IntrospectionRequest::ComponentTrace(query) => {
+                self.handled_queries = self.handled_queries.saturating_add(1);
+                let trace = match self.store.ask(ReadComponentTrace::new(query)).await {
+                    Ok(trace) => trace,
+                    Err(SendError::HandlerError(error)) => return Err(error),
+                    Err(error) => {
+                        return Err(Error::Actor {
+                            operation: "read component trace",
+                            detail: format!("{error:?}"),
+                        });
+                    }
+                };
+                Ok(IntrospectionReply::ComponentTrace(trace))
+            }
             IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query).await,
         }
     }
@@ -180,6 +206,7 @@ impl IntrospectionRoot {
         let _ = self.manager_client.stop_gracefully().await;
         let _ = self.router_client.stop_gracefully().await;
         let _ = self.terminal_client.stop_gracefully().await;
+        let _ = self.trace_listener.stop_gracefully().await;
         let _ = self.store.stop_gracefully().await;
         let _ = self.projection.stop_gracefully().await;
         self.target_directory.wait_for_shutdown().await;
@@ -187,6 +214,7 @@ impl IntrospectionRoot {
         self.manager_client.wait_for_shutdown().await;
         self.router_client.wait_for_shutdown().await;
         self.terminal_client.wait_for_shutdown().await;
+        self.trace_listener.wait_for_shutdown().await;
         self.store.wait_for_shutdown().await;
         self.projection.wait_for_shutdown().await;
     }
@@ -503,6 +531,106 @@ impl RouterClientFrameCodec {
 impl Default for RouterClientFrameCodec {
     fn default() -> Self {
         Self::new(1024 * 1024)
+    }
+}
+
+/// The component-trace ingestion plane. Owns the bound trace socket and a
+/// background drain task that pulls pushed [`ComponentTraceEvent`] frames off
+/// the socket and forwards each to the store as a `RecordComponentTraceEvent`.
+///
+/// Mirrors `RouterClient`'s socket discipline (sync socket IO behind
+/// `spawn_blocking`), but for ingestion rather than query: spirit (and, later,
+/// router) PUSH events to this socket; introspect PULLs them off into durable
+/// state. The socket itself is the actor's data — without the bound listener
+/// the actor has no job — so the no-blocking-handler rule is honored by running
+/// the continuous `collect_for` accept loop on the blocking pool, never inside
+/// a message handler.
+#[derive(Debug)]
+pub struct ComponentTraceListener {
+    socket: Option<PathBuf>,
+    store: ActorRef<IntrospectionStore>,
+    drain_task: Option<JoinHandle<()>>,
+}
+
+impl ComponentTraceListener {
+    /// The window each blocking `collect_for` call accepts pushed frames for
+    /// before the drain loop yields back to forward what it gathered. Short so
+    /// ingested events reach the store promptly; the loop runs continuously.
+    const COLLECT_WINDOW: Duration = Duration::from_millis(50);
+
+    pub fn new(socket: Option<PathBuf>, store: ActorRef<IntrospectionStore>) -> Self {
+        Self {
+            socket,
+            store,
+            drain_task: None,
+        }
+    }
+
+    pub fn socket(&self) -> Option<&Path> {
+        self.socket.as_deref()
+    }
+
+    /// The continuous drain loop: repeatedly accept a window of pushed frames on
+    /// the blocking pool, then forward each to the store. `ask` (not `tell`) so
+    /// the store's fallible `Result` reply is consumed here rather than panicking
+    /// the store actor on the tell-of-fallible-handler trap.
+    async fn drain(
+        listener: Arc<TraceSocketListener<ComponentTraceEvent>>,
+        store: ActorRef<IntrospectionStore>,
+    ) {
+        while store.is_alive() {
+            let collector = Arc::clone(&listener);
+            let collected =
+                tokio::task::spawn_blocking(move || collector.collect_for(Self::COLLECT_WINDOW))
+                    .await;
+            let events = match collected {
+                Ok(Ok(events)) => events,
+                Ok(Err(_trace_error)) => Vec::new(),
+                Err(_join_error) => break,
+            };
+            for event in events {
+                if store
+                    .ask(RecordComponentTraceEvent::new(event))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+impl Actor for ComponentTraceListener {
+    type Args = Self;
+    type Error = Error;
+
+    async fn on_start(
+        mut state: Self::Args,
+        _actor_ref: ActorRef<Self>,
+    ) -> std::result::Result<Self, Self::Error> {
+        if let Some(socket) = state.socket.clone() {
+            let listener =
+                TraceSocketListener::<ComponentTraceEvent>::bind(socket).map_err(|error| {
+                    Error::TraceIngestion {
+                        detail: error.to_string(),
+                    }
+                })?;
+            let store = state.store.clone();
+            state.drain_task = Some(tokio::spawn(Self::drain(Arc::new(listener), store)));
+        }
+        Ok(state)
+    }
+
+    async fn on_stop(
+        &mut self,
+        _actor_reference: WeakActorRef<Self>,
+        _reason: ActorStopReason,
+    ) -> std::result::Result<(), Self::Error> {
+        if let Some(task) = self.drain_task.take() {
+            task.abort();
+        }
+        Ok(())
     }
 }
 

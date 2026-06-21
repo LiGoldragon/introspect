@@ -29,6 +29,16 @@ fact.
   typed reply into `PrototypeWitness.router_seen`. `ManagerClient`
   and `TerminalClient` remain scaffolds until their peer observation
   contracts and daemon ingress paths land.
+- `ComponentTraceListener` — Kameo actor that owns the bound
+  component-trace ingestion socket. Emitting components (spirit
+  first, router next) PUSH `signal_introspect::ComponentTraceEvent`
+  frames over `triad_runtime::trace`; the listener PULLs them off the
+  socket on a background blocking drain loop (the same `spawn_blocking`
+  socket discipline `RouterClient` uses) and forwards each as
+  `RecordComponentTraceEvent` to `IntrospectionStore`. An empty
+  configured trace path disables ingestion (mirrors the empty-peer-socket
+  convention). The wire record is the shared `signal-introspect`
+  contract type, so neither end depends on the other.
 - Fan-out to component daemons over Signal.
 - Fan-in of typed observations as pushed subscription deltas.
 - **`introspect.sema`** — introspect's own typed database,
@@ -36,8 +46,11 @@ fact.
   trail (landed); subscription registrations; delivery trace
   cache keyed by `DeliveryTraceKey` (landed), populated today by
   typed ingress into `IntrospectionRoot` and eventually by Subscribe
-  deltas from peer Tap streams. Observations are persisted as typed
-  records.
+  deltas from peer Tap streams; component-internal trace events in the
+  `component_trace_events` table, keyed `engine/component/sequence:020`
+  (mirroring the delivery-trace record key) so a key-range scan over one
+  component returns its events in monotonic emission order. Observations
+  are persisted as typed records.
 - NOTA projection for humans, agents, and future UIs.
 
 `DeliveryTraceKey` is introspection-domain state — an
@@ -82,6 +95,7 @@ graph TD
     manager["ManagerClient"]
     router["RouterClient"]
     terminal["TerminalClient"]
+    trace["ComponentTraceListener<br/>(owns the bound trace socket)"]
     store["IntrospectionStore<br/>(holds Engine handle to introspect.sema)"]
     projection["NotaProjection"]
 
@@ -90,8 +104,10 @@ graph TD
     root --> manager
     root --> router
     root --> terminal
+    root --> trace
     root --> store
     root --> projection
+    trace -->|RecordComponentTraceEvent| store
 ```
 
 ## 4. Constraints
@@ -111,6 +127,7 @@ graph TD
 | Every `IntrospectionRequest` variant arrives as a contract-local operation head. | `signal-introspect` declares the operation heads and the daemon codec accepts one typed `signal-frame` payload per request. Sema classification remains daemon-internal. |
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot router observation query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
+| Pushed component-internal trace events are ingested over a socket, persisted, and served by a typed `ComponentTrace` query filtered by component and event name. | `tests/component_trace.rs::pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name` spawns the real `IntrospectionRoot` with a temp trace socket, pushes three `ComponentTraceEvent`s through `TraceLog::socket`, and asserts the `ComponentTrace` query returns three in sequence order, then exactly one under an `event_name` filter. |
 | `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records matching and nonmatching events, range-queries by the join key, and reads back only the four matching hops ordered by `hop_index`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
 | Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |

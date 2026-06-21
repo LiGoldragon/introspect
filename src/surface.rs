@@ -57,6 +57,9 @@ impl Output {
             IntrospectionReply::DeliveryTrace(trace) => {
                 Self::wrap("DeliveryTrace", trace.to_nota())
             }
+            IntrospectionReply::ComponentTrace(trace) => {
+                Self::wrap("ComponentTrace", trace.to_nota())
+            }
             IntrospectionReply::PrototypeWitness(witness) => {
                 Self::wrap("PrototypeWitness", witness.to_nota())
             }

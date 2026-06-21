@@ -16,6 +16,8 @@ pub enum Error {
         operation: &'static str,
         detail: String,
     },
+    #[error("component trace ingestion failed: {detail}")]
+    TraceIngestion { detail: String },
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
     #[error("triad runtime frame: {0}")]

@@ -303,7 +303,7 @@ dependencies = [
  "schema-rust-next",
  "sema-engine",
  "signal-frame",
- "signal-introspect",
+ "signal-introspect 0.1.0 (git+https://github.com/LiGoldragon/signal-introspect.git?branch=trace-introspect-slice)",
  "signal-persona",
  "signal-router",
  "tempfile",
@@ -393,7 +393,7 @@ dependencies = [
  "nota-next",
  "rkyv",
  "signal-frame",
- "signal-introspect",
+ "signal-introspect 0.1.0 (git+https://github.com/LiGoldragon/signal-introspect.git?branch=main)",
  "thiserror",
 ]
 
@@ -744,6 +744,20 @@ dependencies = [
  "signal-message",
  "signal-persona",
  "thiserror",
+]
+
+[[package]]
+name = "signal-introspect"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=trace-introspect-slice#99daca8e968407c7cfc87aad5ca42bc4b1ff9dab"
+dependencies = [
+ "nota-next",
+ "rkyv",
+ "signal-frame",
+ "signal-message",
+ "signal-persona",
+ "thiserror",
+ "triad-runtime",
 ]
 
 [[package]]
