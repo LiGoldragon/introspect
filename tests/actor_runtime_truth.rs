@@ -89,11 +89,11 @@ fn prototype_witness_queries_live_router_summary_socket() {
             exchange: exchange(),
             reply: Reply::committed(NonEmpty::single(SubReply::Ok(RouterReply::Summary(
                 RouterSummary {
-                    engine: RouterEngineIdentifier::new("prototype"),
-                    accepted_messages: 0,
-                    routed_messages: 0,
-                    deferred_messages: 0,
-                    failed_messages: 0,
+                    engine: RouterEngineIdentifier::new("prototype").into(),
+                    accepted_messages: 0.into(),
+                    routed_messages: 0.into(),
+                    deferred_messages: 0.into(),
+                    failed_messages: 0.into(),
                 },
             )))),
         });

@@ -487,7 +487,7 @@ impl DeliveryTraceJoinKeyPrefix {
             "{}/{}/{}",
             self.key.engine.payload().as_str(),
             self.key.message_identifier.clone().into_u64(),
-            self.key.originator.as_ref()
+            self.key.originator.payload().as_str()
         )
     }
 }

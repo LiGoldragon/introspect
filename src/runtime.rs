@@ -412,9 +412,9 @@ impl RouterClient {
         let mut stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = RouterRequest::Summary(RouterSummaryQuery::new(RouterEngineIdentifier::new(
-            engine.payload().clone(),
-        )));
+        let request = RouterRequest::Summary(RouterSummaryQuery::new(
+            RouterEngineIdentifier::new(engine.payload().clone()).into(),
+        ));
         let frame = RouterFrame::new(RouterFrameBody::Request {
             exchange: Self::router_exchange(),
             request: request.into_request(),
@@ -441,7 +441,9 @@ impl RouterClient {
             RouterFrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
                     SubReply::Ok(RouterReply::Summary(summary)) => {
-                        if summary.engine.payload() == expected_engine.payload().as_str() {
+                        if summary.engine.payload().payload().as_str()
+                            == expected_engine.payload().as_str()
+                        {
                             Ok(Some(ComponentReadiness::Ready))
                         } else {
                             Ok(Some(ComponentReadiness::NotReady))
