@@ -14,6 +14,24 @@ NOTA proof of what happened.
 It is not in the message delivery path. It proves the delivery path after the
 fact; it is never in the delivery path itself.
 
+The component is named `introspect` (no `persona-` prefix) and builds on the
+`schema-next` triad engine interfaces. It is the workspace's configurable trace
+destination: every component decides what and how it logs by directing its
+trace at this component, and `introspect` becomes a queryable source of
+tracing-derived intelligence about the running system. It is also the home for
+cross-version error logs — full failed messages preserved in version-encoded
+form so a later build can decode and recover them — and the durable capture
+point for Pi-library agent activity (inputs, outputs, commands run, command
+outputs, and agent inference).
+
+The deeper principle: for a tool-using agent, persistent memory **is** the
+queryable tool-call trace, not the model context window. A structured tool
+protocol gives perfect recall by construction (an MCP-first property a
+UI-driving agent cannot match), so `introspect` exposes a `query_history` path
+back to the agent — structured filter, summary-on-demand, or vector retrieval —
+and the same property generalizes to any tool-using agent (deploy automation,
+browser-use, video editing).
+
 ## 1. Owned surface
 
 - `introspect-daemon`
@@ -53,8 +71,34 @@ fact; it is never in the delivery path itself.
   `component_trace_events` table, keyed `engine/component/sequence:020`
   (mirroring the delivery-trace record key) so a key-range scan over one
   component returns its events in monotonic emission order. Observations
-  are persisted as typed records.
+  are persisted as typed records. Persisting trace events here is the
+  persist-to-SEMA sink choice; the daemon-emitted binary frames are the same
+  whether a client persists them or only displays them.
 - NOTA projection for humans, agents, and future UIs.
+
+Trace client behaviour is a reusable client **library**, not per-component CLI
+glue. The library owns both display and SEMA-log features; each component's
+trace CLI is a thin wrapper that enables and calls those features rather than
+reimplementing listener and decoder logic. The generic CLI trace-siting path
+lives as a `triad-runtime` helper, not one-off `schema-rust-next` emitter glue.
+A client therefore chooses its sink: display the stream as NOTA, or persist to
+a SEMA database purpose-built for trace storage (the same `introspect.sema`
+shape). The emitting daemon emits typed binary trace frames regardless of which
+sink a client picks.
+
+Tracing is a **schema-defined interface**, not an ad-hoc string log. Trace
+names and events are closed generated enum vocabularies: the macro emits trace
+names directly from the schema enum-variant structure, which already owns each
+activated object's identifier, so instrumentation records only that object name
+rather than a rich per-boundary payload snapshot. The trace hooks live on the
+schema-generated engine traits themselves as default derived no-op
+implementations — on the interface and actor contract, not as separate
+`SignalTrace` / `NexusTrace` / `SemaTrace` side traits — and a trace build
+overrides the default or installs a sink. Two trace forms exist: `COMPACT`
+carries only the root variant name; `EXTENDED` appends the nested variant chain
+when a variant payload is itself an enum and stops at the root when the payload
+is a struct, with the enum-vs-struct distinction known to the macro at compile
+time.
 
 `DeliveryTraceKey` is introspection-domain state — an
 introspection-owned key for joining router, harness, and terminal
@@ -186,3 +230,14 @@ The remaining work:
   `DeliveryTrace`. Until then, `DeliveryTrace` is populated by the
   root's typed delivery-trace event ingress; an empty event vector
   means no correlated Tap events have arrived for the query key.
+- **Trace enablement and the testing log surface.** Trace enablement is
+  controlled and documented per crate or component, since interfaces may
+  enable or suppress tracing independently; the tracing interface itself
+  stays untraced for now so the trace system never recursively traces its
+  own events. In testing mode the CLI is the log surface: the log socket
+  routes back to the CLI, which displays all engine logs over the same wire
+  substrate as production interaction, with no separate logging daemon or
+  sink, and the routing is configured by typed NOTA. Schema-emitted objects
+  carry optional-compilable, feature-gated logging hooks at the macro and
+  emitter layer — off in production, on in testing — that log object usage
+  through that same socket.
