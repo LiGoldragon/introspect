@@ -6,10 +6,13 @@
 
 `introspect` is the prototype's inspection-plane component. It is
 supervised alongside the operational first stack and gives the engine a way to
-explain itself through typed component observations.
+explain itself through typed component observations. Its purpose is a witness,
+not a broad UI: the concrete first goal is that after a fixture is delivered,
+`introspect` asks the running components for typed observations and prints one
+NOTA proof of what happened.
 
 It is not in the message delivery path. It proves the delivery path after the
-fact.
+fact; it is never in the delivery path itself.
 
 ## 1. Owned surface
 
