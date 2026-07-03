@@ -34,7 +34,7 @@ signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
 meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "main" }
-signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
+signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "synchronizer" }
 thiserror                 = "2"
 tokio                     = { version = "1", features = ["rt-multi-thread"] }
 triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
