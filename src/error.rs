@@ -25,7 +25,7 @@ pub enum Error {
     #[error("sema-engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
     #[error("nota decode: {0}")]
-    Nota(#[from] nota_next::NotaDecodeError),
+    Nota(#[from] nota::NotaDecodeError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("argument: {0}")]

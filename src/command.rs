@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use nota_next::NotaSource;
+use nota::NotaSource;
 use signal_introspect::IntrospectionRequest;
 use triad_runtime::ComponentCommand;
 

@@ -20,7 +20,7 @@ use meta_signal_introspect::{
     MetaIntrospectReply, Operation as MetaIntrospectOperation,
     OperationKind as MetaIntrospectOperationKind, UnimplementedReason,
 };
-use nota_next::NotaEncode;
+use nota::NotaEncode;
 use signal_introspect::{
     ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
     IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
