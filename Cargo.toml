@@ -30,17 +30,17 @@ kameo                     = { git = "https://github.com/LiGoldragon/kameo.git", 
 nota                 = { git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 rkyv                      = "0.8"
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
-signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
-meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "main" }
-signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
+signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "drop-next" }
+signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "drop-next" }
+signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "drop-next" }
+meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "drop-next" }
+signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "drop-next" }
 thiserror                 = "2"
 tokio                     = { version = "1", features = ["rt-multi-thread"] }
-triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "drop-next" }
 
 [build-dependencies]
-schema-rust = { git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema-rust = { git = "https://github.com/LiGoldragon/schema-rust.git", branch = "drop-next" }
 
 [dev-dependencies]
 tempfile = "3"
