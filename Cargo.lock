@@ -388,7 +388,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?branch=drop-next#b6f3297de81f0eeab70d203c31fea91b27d7ece6"
+source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?branch=drop-next#4ef89404c9e54f830dacae3781215fce2db10c1f"
 dependencies = [
  "nota",
  "rkyv",
@@ -623,7 +623,7 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#94a0aa88a1d909b6f87cbf1431762c6fb0e19b71"
+source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#72c71ffc558fee0d29c5b0517013de46e0307597"
 dependencies = [
  "nota",
  "prettyplease",
@@ -759,7 +759,7 @@ dependencies = [
 [[package]]
 name = "signal-introspect"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=drop-next#ce4529c27f4f5e83acde7695518360e7d656dd6d"
+source = "git+https://github.com/LiGoldragon/signal-introspect.git?branch=drop-next#3218655d675fefa1cb549286ed03f25fc2a67013"
 dependencies = [
  "nota",
  "rkyv",
@@ -773,7 +773,7 @@ dependencies = [
 [[package]]
 name = "signal-message"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-message.git?branch=drop-next#311ee6c4279b232688db64a8e219cb86abb6d676"
+source = "git+https://github.com/LiGoldragon/signal-message.git?branch=drop-next#0bd080fcd739bde92dbb76b83a6084541a31675a"
 dependencies = [
  "nota",
  "rkyv",
@@ -785,7 +785,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#e8eead5ae6d576a298ee547b78901fe7fd7c7afc"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#9de82cd3a11270dd3c38ed507553c78ea703b25f"
 dependencies = [
  "nota",
  "rkyv",
@@ -796,7 +796,7 @@ dependencies = [
 [[package]]
 name = "signal-router"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-router.git?branch=drop-next#d55ee2bfcdf22ae4ccbeb5810ca0cefe08020fad"
+source = "git+https://github.com/LiGoldragon/signal-router.git?branch=drop-next#9c3f8f7611e4a65868ae38abb18c93fc8debc73d"
 dependencies = [
  "rkyv",
  "schema-rust",
