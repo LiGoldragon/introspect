@@ -2,7 +2,7 @@
 //!
 //! The uniform daemon skeleton (argv parsing, async task-backed multi-listener
 //! binding, request gating, peer credentials, lifecycle, and the `ExitReport`
-//! entry) is emitted into `src/schema/daemon.rs` by schema-rust-next's daemon
+//! entry) is emitted into `src/schema/daemon.rs` by schema-rust's daemon
 //! emitter under the **component-decoded** working tier. Introspect's ordinary
 //! socket speaks the hand-written `signal-introspect` `IntrospectionFrame`
 //! contract (not a schema-derived root), so the emitted shell owns listener

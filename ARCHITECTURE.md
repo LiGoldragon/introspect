@@ -15,7 +15,7 @@ It is not in the message delivery path. It proves the delivery path after the
 fact; it is never in the delivery path itself.
 
 The component is named `introspect` (no `persona-` prefix) and builds on the
-`schema-next` triad engine interfaces. It is the workspace's configurable trace
+`schema` triad engine interfaces. It is the workspace's configurable trace
 destination: every component decides what and how it logs by directing its
 trace at this component, and `introspect` becomes a queryable source of
 tracing-derived intelligence about the running system. It is also the home for
@@ -80,7 +80,7 @@ Trace client behaviour is a reusable client **library**, not per-component CLI
 glue. The library owns both display and SEMA-log features; each component's
 trace CLI is a thin wrapper that enables and calls those features rather than
 reimplementing listener and decoder logic. The generic CLI trace-siting path
-lives as a `triad-runtime` helper, not one-off `schema-rust-next` emitter glue.
+lives as a `triad-runtime` helper, not one-off `schema-rust` emitter glue.
 A client therefore chooses its sink: display the stream as NOTA, or persist to
 a SEMA database purpose-built for trace storage (the same `introspect.sema`
 shape). The emitting daemon emits typed binary trace frames regardless of which
