@@ -3,12 +3,15 @@ use std::path::{Path, PathBuf};
 use introspect::runtime::{
     HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
-use introspect::store::{IntrospectionStore, StoreLocation};
+use introspect::store::{
+    IntrospectionStore, ObservationSequence, PersistenceRetention, StoreLocation, StoredObservation,
+};
 use sema_engine::RecordKey;
 use signal_introspect::{
-    ComponentSnapshotQuery, DeliveryTraceEvent, DeliveryTraceKey, DeliveryTraceQuery,
-    DeliveryTraceStatus, EngineSnapshotQuery, HopIndex, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, MessageIdentifier, PrototypeWitnessQuery,
+    ComponentSnapshotQuery, ComponentTraceEvent, ComponentTraceQuery, DeliveryTraceEvent,
+    DeliveryTraceKey, DeliveryTraceQuery, DeliveryTraceStatus, EngineSnapshotQuery, HopIndex,
+    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
+    PrototypeWitnessQuery, TraceEventName, TraceLayer, TraceSequence,
 };
 use signal_persona::{ComponentName, EngineIdentifier};
 
@@ -318,6 +321,109 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         assert_eq!(operation.operation().as_record_head(), "Assert");
         assert_eq!(operation.table_name(), "delivery_trace_events");
     }
+}
+
+#[test]
+fn bounded_observation_retention_reclaims_oldest_rows() {
+    let fixture = IntrospectionStoreFixture::new();
+    let store = IntrospectionStore::open_with_retention(
+        &fixture.store(),
+        PersistenceRetention::new(2, 2, 2),
+    )
+    .expect("store opens with a bounded retention policy");
+    let engine = EngineIdentifier::new("prototype");
+
+    for sequence in 1..=3 {
+        let request = IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
+            engine: engine.clone(),
+        });
+        let reply = IntrospectionReply::EngineSnapshot(signal_introspect::EngineSnapshot::new(
+            engine.clone(),
+            Vec::new(),
+        ));
+        store
+            .record_observation(StoredObservation::new(
+                ObservationSequence::new(sequence),
+                request,
+                reply,
+            ))
+            .expect("observation persists");
+    }
+
+    let retained = store.observations().expect("retained observations read");
+    let sequences = retained
+        .iter()
+        .map(|observation| observation.sequence().value())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sequences,
+        vec![2, 3],
+        "oldest diagnostic rows are retracted"
+    );
+}
+
+#[test]
+fn bounded_trace_retention_keeps_a_finite_queryable_window() {
+    let fixture = IntrospectionStoreFixture::new();
+    let store = IntrospectionStore::open_with_retention(
+        &fixture.store(),
+        PersistenceRetention::new(2, 2, 2),
+    )
+    .expect("store opens with a bounded retention policy");
+    let engine = EngineIdentifier::new("prototype");
+    let originator = component_name("Message");
+
+    for sequence in 1..=3 {
+        store
+            .record_delivery_trace_event(trace_event(
+                engine.clone(),
+                MessageIdentifier::new(sequence),
+                originator.clone(),
+                0,
+                component_name("Router"),
+                DeliveryTraceStatus::Routed,
+            ))
+            .expect("delivery trace persists");
+        store
+            .record_component_trace_event(ComponentTraceEvent::new(
+                engine.clone(),
+                IntrospectionTarget::Signal,
+                TraceLayer::Signal,
+                TraceEventName::new("SignalAdmitted"),
+                TraceSequence::new(sequence),
+            ))
+            .expect("component trace persists");
+    }
+
+    let first_delivery = store
+        .delivery_trace(DeliveryTraceQuery {
+            engine: engine.clone(),
+            message_identifier: MessageIdentifier::new(1),
+            originator: originator.clone(),
+        })
+        .expect("delivery trace query succeeds");
+    assert!(
+        first_delivery.events().is_empty(),
+        "oldest delivery trace is reclaimed"
+    );
+
+    let traces = store
+        .component_trace(ComponentTraceQuery::new(
+            engine,
+            IntrospectionTarget::Signal,
+            None,
+        ))
+        .expect("component trace query succeeds");
+    let retained_sequences = traces
+        .events()
+        .iter()
+        .map(|event| event.sequence.value())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        retained_sequences,
+        vec![2, 3],
+        "oldest component trace is reclaimed"
+    );
 }
 
 #[test]

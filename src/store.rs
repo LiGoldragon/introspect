@@ -6,8 +6,8 @@ use kameo::message::{Context, Message};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, FamilyName, KeyRange, QueryPlan,
-    RecordKey, SchemaHash, SchemaVersion, SnapshotIdentifier, TableDescriptor, TableName,
-    TableReference, VersionedStoreName, VersioningPolicy,
+    RecordKey, Retraction, SchemaHash, SchemaVersion, SnapshotIdentifier, TableDescriptor,
+    TableName, TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_introspect::{
     ComponentTrace, ComponentTraceEvent, ComponentTraceQuery, DeliveryTrace, DeliveryTraceEvent,
@@ -25,6 +25,36 @@ const COMPONENT_TRACE_EVENTS: TableName = TableName::new("component_trace_events
 const OBSERVATIONS_FAMILY: &str = "introspection-observation";
 const DELIVERY_TRACE_EVENTS_FAMILY: &str = "delivery-trace-event";
 const COMPONENT_TRACE_EVENTS_FAMILY: &str = "component-trace-event";
+
+/// Per-table caps for diagnostic records kept in `introspect.sema`. The typed
+/// policy is local component state until the meta configuration contract gains
+/// a retention operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PersistenceRetention {
+    observations: usize,
+    delivery_trace_events: usize,
+    component_trace_events: usize,
+}
+
+impl PersistenceRetention {
+    pub const fn new(
+        observations: usize,
+        delivery_trace_events: usize,
+        component_trace_events: usize,
+    ) -> Self {
+        Self {
+            observations,
+            delivery_trace_events,
+            component_trace_events,
+        }
+    }
+}
+
+impl Default for PersistenceRetention {
+    fn default() -> Self {
+        Self::new(1024, 4096, 4096)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreLocation {
@@ -60,10 +90,18 @@ pub struct IntrospectionStore {
     observations: TableReference<StoredObservation>,
     delivery_trace_events: TableReference<StoredDeliveryTraceEvent>,
     component_trace_events: TableReference<StoredComponentTraceEvent>,
+    retention: PersistenceRetention,
 }
 
 impl IntrospectionStore {
     pub fn open(store: &StoreLocation) -> Result<Self> {
+        Self::open_with_retention(store, PersistenceRetention::default())
+    }
+
+    pub fn open_with_retention(
+        store: &StoreLocation,
+        retention: PersistenceRetention,
+    ) -> Result<Self> {
         let mut engine = Engine::open(Self::engine_open(store.as_path()))?;
         let observations =
             engine.register_table(Self::family_descriptor(OBSERVATIONS, OBSERVATIONS_FAMILY))?;
@@ -80,6 +118,7 @@ impl IntrospectionStore {
             observations,
             delivery_trace_events,
             component_trace_events,
+            retention,
         })
     }
 
@@ -110,6 +149,7 @@ impl IntrospectionStore {
         let receipt = self
             .engine
             .assert(Assertion::new(self.observations, observation.clone()))?;
+        self.reclaim_observations()?;
         Ok(ObservationReceipt::new(
             observation.sequence(),
             receipt.snapshot(),
@@ -132,6 +172,7 @@ impl IntrospectionStore {
         let receipt = self
             .engine
             .assert(Assertion::new(self.delivery_trace_events, stored_event))?;
+        self.reclaim_delivery_trace_events()?;
         Ok(ObservationReceipt::new(
             ObservationSequence::new(event.key().hop_index.value() as u64),
             receipt.snapshot(),
@@ -168,6 +209,7 @@ impl IntrospectionStore {
         let receipt = self
             .engine
             .assert(Assertion::new(self.component_trace_events, stored_event))?;
+        self.reclaim_component_trace_events()?;
         Ok(ObservationReceipt::new(
             ObservationSequence::new(sequence),
             receipt.snapshot(),
@@ -188,6 +230,53 @@ impl IntrospectionStore {
             .collect::<Vec<_>>();
         events.sort_by_key(|event| event.sequence);
         Ok(ComponentTrace::new(query.engine, query.component, events))
+    }
+
+    fn reclaim_observations(&self) -> Result<()> {
+        let mut records = self.observations()?;
+        records.sort_by_key(|record| record.sequence().value());
+        let excess = records.len().saturating_sub(self.retention.observations);
+        for record in records.into_iter().take(excess) {
+            self.engine
+                .retract(Retraction::new(self.observations, record.record_key()))?;
+        }
+        Ok(())
+    }
+
+    fn reclaim_delivery_trace_events(&self) -> Result<()> {
+        let records = self
+            .engine
+            .match_records(QueryPlan::all(self.delivery_trace_events))?
+            .records()
+            .to_vec();
+        let excess = records
+            .len()
+            .saturating_sub(self.retention.delivery_trace_events);
+        for record in records.into_iter().take(excess) {
+            self.engine.retract(Retraction::new(
+                self.delivery_trace_events,
+                record.record_key(),
+            ))?;
+        }
+        Ok(())
+    }
+
+    fn reclaim_component_trace_events(&self) -> Result<()> {
+        let records = self
+            .engine
+            .match_records(QueryPlan::all(self.component_trace_events))?
+            .records()
+            .to_vec();
+        let excess = records
+            .len()
+            .saturating_sub(self.retention.component_trace_events);
+        for record in records.into_iter().take(excess) {
+            self.engine.retract(Retraction::new(
+                self.component_trace_events,
+                record.record_key(),
+            ))?;
+        }
+        Ok(())
     }
 
     pub fn operation_log(&self) -> Result<Vec<CommitLogEntry>> {
