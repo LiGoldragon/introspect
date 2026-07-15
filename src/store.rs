@@ -113,13 +113,17 @@ impl IntrospectionStore {
             COMPONENT_TRACE_EVENTS,
             COMPONENT_TRACE_EVENTS_FAMILY,
         ))?;
-        Ok(Self {
+        let store = Self {
             engine,
             observations,
             delivery_trace_events,
             component_trace_events,
             retention,
-        })
+        };
+        store.reclaim_observations()?;
+        store.reclaim_delivery_trace_events()?;
+        store.reclaim_component_trace_events()?;
+        Ok(store)
     }
 
     fn engine_open(path: &Path) -> EngineOpen {
