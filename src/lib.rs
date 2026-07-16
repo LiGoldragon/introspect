@@ -1,4 +1,5 @@
 pub mod cli_argument;
+pub mod coalescer;
 pub mod command;
 pub mod daemon;
 pub mod error;

@@ -22,9 +22,13 @@ use meta_signal_introspect::{
 };
 use nota::NotaEncode;
 use signal_introspect::{
-    ComponentSnapshotQuery, DeliveryTraceQuery, EngineSnapshotQuery, IntrospectDaemonConfiguration,
-    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
-    PrototypeWitnessQuery, SocketMode as WireSocketMode, WirePath,
+    BluetoothPowerEvent, BluetoothPowerObservation, BluetoothSystemEvent, BluetoothTarget,
+    BluetoothTopic, BootIdentifier, ComponentSnapshotQuery, DeliveryTraceQuery,
+    EngineSnapshotQuery, EventIdentifier, EventInstant, EventProvenance, EventSeverity,
+    ExtractorRevision, IntrospectDaemonConfiguration, IntrospectionReply, IntrospectionRequest,
+    IntrospectionTarget, JournalSource, MessageIdentifier, PolicyRevision, PrototypeWitnessQuery,
+    RecordSystemEvent, SocketMode as WireSocketMode, SystemEvent, SystemEventsQuery,
+    TargetedSystemEvent, WirePath,
 };
 use signal_persona::{ComponentName as AuthComponentName, EngineIdentifier};
 use signal_persona::{OwnerIdentity, UnixUserIdentifier};
@@ -69,6 +73,25 @@ impl DaemonProcess {
         IntrospectionSignalClient::new(self.introspect_socket.clone())
             .submit(request)
             .expect("client receives reply")
+    }
+
+    fn bluetooth_event(identifier: u64, observed_at: u64) -> SystemEvent {
+        SystemEvent {
+            identifier: EventIdentifier::new(identifier),
+            boot: BootIdentifier::new(0x1234, 0x5678),
+            observed_at: EventInstant::new(observed_at),
+            classification: TargetedSystemEvent::Bluetooth(BluetoothSystemEvent {
+                target: BluetoothTarget::Controller,
+                topic: BluetoothTopic::Power(BluetoothPowerObservation::Event(
+                    BluetoothPowerEvent::ObservedOn,
+                )),
+            }),
+            severity: EventSeverity::Warning,
+            provenance: EventProvenance::trusted_journal(JournalSource::SystemdBluetoothService),
+            extractor_revision: ExtractorRevision::new(1),
+            policy_revision: PolicyRevision::new(2),
+            payload: None,
+        }
     }
 }
 
@@ -185,6 +208,35 @@ fn daemon_serves_scaffold_observation_replies_for_all_request_families() {
         }
         other => panic!("expected delivery trace, got {other:?}"),
     }
+}
+
+#[test]
+fn targeted_system_event_socket_ingestion_is_durable_and_typed_queryable() {
+    let daemon = DaemonProcess::spawn();
+    for (identifier, observed_at) in [(41, 10), (42, 20)] {
+        let reply = daemon.submit(IntrospectionRequest::RecordSystemEvent(RecordSystemEvent {
+            event: DaemonProcess::bluetooth_event(identifier, observed_at),
+        }));
+        let IntrospectionReply::SystemEventAccepted(accepted) = reply else {
+            panic!("expected typed system-event acceptance");
+        };
+        assert_eq!(accepted.representative_identifier.value(), 41);
+    }
+
+    let reply = daemon.submit(IntrospectionRequest::SystemEvents(SystemEventsQuery {
+        boot: BootIdentifier::new(0x1234, 0x5678),
+        domain: None,
+    }));
+    let IntrospectionReply::SystemEvents(events) = reply else {
+        panic!("expected typed system-event query reply");
+    };
+    assert_eq!(events.summaries.as_slice().len(), 1);
+    let summary = &events.summaries.as_slice()[0];
+    assert_eq!(summary.representative.identifier.value(), 41);
+    assert_eq!(summary.count, 2);
+    assert_eq!(summary.suppressed_count, 1);
+    assert_eq!(summary.first_seen.value(), 10);
+    assert_eq!(summary.last_seen.value(), 20);
 }
 
 #[test]

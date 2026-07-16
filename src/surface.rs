@@ -63,6 +63,15 @@ impl Output {
             IntrospectionReply::PrototypeWitness(witness) => {
                 Self::wrap("PrototypeWitness", witness.to_nota())
             }
+            IntrospectionReply::SystemEventAccepted(accepted) => {
+                Self::wrap("SystemEventAccepted", accepted.to_nota())
+            }
+            IntrospectionReply::SystemEvents(events) => {
+                Self::wrap("SystemEvents", events.to_nota())
+            }
+            IntrospectionReply::SystemEventsFlushed(flushed) => {
+                Self::wrap("SystemEventsFlushed", flushed.to_nota())
+            }
             IntrospectionReply::Unimplemented(unimplemented) => {
                 Self::wrap("Unimplemented", unimplemented.to_nota())
             }

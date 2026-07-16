@@ -6,7 +6,10 @@ use introspect::runtime::{
 use introspect::store::{
     IntrospectionStore, ObservationSequence, PersistenceRetention, StoreLocation, StoredObservation,
 };
-use sema_engine::RecordKey;
+use sema_engine::{
+    Assertion, Engine, EngineOpen, FamilyName, RecordKey, SchemaHash, SchemaVersion,
+    TableDescriptor, TableName, VersionedStoreName, VersioningPolicy,
+};
 use signal_introspect::{
     ComponentSnapshotQuery, ComponentTraceEvent, ComponentTraceQuery, DeliveryTraceEvent,
     DeliveryTraceKey, DeliveryTraceQuery, DeliveryTraceStatus, EngineSnapshotQuery, HopIndex,
@@ -103,6 +106,46 @@ fn introspection_root_records_observations_through_sema_engine() {
 }
 
 #[test]
+fn additive_system_event_table_migration_keeps_version_three_observations_readable() {
+    let fixture = IntrospectionStoreFixture::new();
+    let location = fixture.store();
+    let mut legacy_engine = Engine::open(
+        EngineOpen::new(location.as_path().to_path_buf(), SchemaVersion::new(3))
+            .with_versioning(VersioningPolicy::new(VersionedStoreName::new("introspect"))),
+    )
+    .expect("legacy version-three store opens");
+    let observations = legacy_engine
+        .register_table(TableDescriptor::<StoredObservation>::new(
+            TableName::new("introspection_observations"),
+            FamilyName::new("introspection-observation"),
+            SchemaHash::for_label("introspect-introspection-observation-v3"),
+        ))
+        .expect("legacy observation table registers");
+    let engine = EngineIdentifier::new("prototype");
+    let observation = StoredObservation::new(
+        ObservationSequence::new(1),
+        IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
+            engine: engine.clone(),
+        }),
+        IntrospectionReply::EngineSnapshot(signal_introspect::EngineSnapshot::new(
+            engine,
+            Vec::new(),
+        )),
+    );
+    legacy_engine
+        .assert(Assertion::new(observations, observation.clone()))
+        .expect("legacy observation persists");
+    drop(legacy_engine);
+
+    let migrated = IntrospectionStore::open(&location)
+        .expect("additive system-event family registers on legacy store");
+    assert_eq!(
+        migrated.observations().expect("observations read"),
+        vec![observation]
+    );
+}
+
+#[test]
 fn introspection_source_does_not_open_peer_component_database_files() {
     let fixture = IntrospectionStoreFixture::new();
     let source = fixture.source_text();
@@ -134,7 +177,7 @@ fn introspection_store_opens_local_state_through_sema_engine() {
 }
 
 #[test]
-fn every_introspection_request_variant_persists_through_actor_root_and_sema_engine() {
+fn observation_query_families_persist_through_actor_root_and_sema_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let engine = EngineIdentifier::new("prototype");

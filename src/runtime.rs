@@ -24,9 +24,9 @@ use triad_runtime::trace::TraceSocketListener;
 
 use crate::error::{Error, Result};
 use crate::store::{
-    IntrospectionStore, ObservationSequence, ReadComponentTrace, ReadDeliveryTrace,
-    RecordComponentTraceEvent, RecordDeliveryTraceEvent, RecordObservation, StoreLocation,
-    StoredObservation,
+    FlushTargetedSystemEvents, IntrospectionStore, ObservationSequence, ReadComponentTrace,
+    ReadDeliveryTrace, ReadSystemEvents, RecordComponentTraceEvent, RecordDeliveryTraceEvent,
+    RecordObservation, RecordTargetedSystemEvent, StoreLocation, StoredObservation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +176,54 @@ impl IntrospectionRoot {
                 };
                 Ok(IntrospectionReply::ComponentTrace(trace))
             }
+            IntrospectionRequest::RecordSystemEvent(record) => {
+                let accepted = match self
+                    .store
+                    .ask(RecordTargetedSystemEvent::new(record.event))
+                    .await
+                {
+                    Ok(accepted) => accepted,
+                    Err(SendError::HandlerError(error)) => return Err(error),
+                    Err(error) => {
+                        return Err(Error::Actor {
+                            operation: "record targeted system event",
+                            detail: format!("{error:?}"),
+                        });
+                    }
+                };
+                Ok(IntrospectionReply::SystemEventAccepted(accepted))
+            }
+            IntrospectionRequest::SystemEvents(query) => {
+                self.handled_queries = self.handled_queries.saturating_add(1);
+                let events = match self.store.ask(ReadSystemEvents::new(query)).await {
+                    Ok(events) => events,
+                    Err(SendError::HandlerError(error)) => return Err(error),
+                    Err(error) => {
+                        return Err(Error::Actor {
+                            operation: "read targeted system events",
+                            detail: format!("{error:?}"),
+                        });
+                    }
+                };
+                Ok(IntrospectionReply::SystemEvents(events))
+            }
+            IntrospectionRequest::FlushSystemEvents(flush) => {
+                let flushed = match self
+                    .store
+                    .ask(FlushTargetedSystemEvents::new(flush.boot))
+                    .await
+                {
+                    Ok(flushed) => flushed,
+                    Err(SendError::HandlerError(error)) => return Err(error),
+                    Err(error) => {
+                        return Err(Error::Actor {
+                            operation: "flush targeted system events",
+                            detail: format!("{error:?}"),
+                        });
+                    }
+                };
+                Ok(IntrospectionReply::SystemEventsFlushed(flushed))
+            }
             IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query).await,
         }
     }
@@ -280,7 +328,9 @@ impl Message<HandleIntrospectionRequest> for IntrospectionRoot {
     ) -> Self::Reply {
         let request = message.request;
         let reply = self.handle_request(request.clone()).await?;
-        self.record_observation(request, reply.clone()).await?;
+        if !matches!(&request, IntrospectionRequest::RecordSystemEvent(_)) {
+            self.record_observation(request, reply.clone()).await?;
+        }
         Ok(reply)
     }
 }

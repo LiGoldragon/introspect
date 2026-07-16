@@ -75,6 +75,17 @@ browser-use, video editing).
   persist-to-SEMA sink choice; the daemon-emitted binary frames are the same
   whether a client persists them or only displays them.
 - NOTA projection for humans, agents, and future UIs.
+- Targeted typed system-event admission and query over the ordinary Signal
+  socket. `signal-introspect` owns the recursive domain/target/topic/curated
+  event-error vocabulary. `IntrospectionStore` validates privacy invariants,
+  coalesces exact duplicates per boot, and persists typed summaries in the
+  `system_event_summaries` family. Exact identity is computed only after typed
+  extraction/redaction and excludes event identifiers and timestamps.
+- `ExactDuplicateCoalescer` is a named mechanism distinct from similarity,
+  cooldown, debounce, sampling, token-bucket limiting, or recurring-pattern
+  policy. Its active set is capped at 10,000 keys; interval closure, explicit
+  flush, shutdown, and eviction have separate typed closure reasons. Warning
+  and error events are never sampled.
 
 Trace client behaviour is a reusable client **library**, not per-component CLI
 glue. The library owns both display and SEMA-log features; each component's
@@ -175,6 +186,9 @@ graph TD
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot router observation query is allowed only as an explicit witness path and never as a timer loop. | Source scan: no timer loops in `ManagerClient`/`RouterClient`/`TerminalClient`. `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Subscription forwarding goes through `sema-engine`'s `Subscribe` primitive. | Source scan: `Engine::subscribe` is the only path that registers introspect-side subscriptions to peer streams. |
 | Pushed component-internal trace events are ingested over a socket, persisted, and served by a typed `ComponentTrace` query filtered by component and event name. | `tests/component_trace.rs::pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name` spawns the real `IntrospectionRoot` with a temp trace socket, pushes three `ComponentTraceEvent`s through `TraceLog::socket`, and asserts the `ComponentTrace` query returns three in sequence order, then exactly one under an `event_name` filter. |
+| Targeted system events cross the ordinary binary Signal socket, coalesce exactly, persist, and return through typed query. | `tests/daemon.rs::targeted_system_event_socket_ingestion_is_durable_and_typed_queryable` drives two duplicate warning events through the real daemon socket and reads one durable typed summary with count/first/last/suppressed identity. |
+| Unclassified targeted input never retains a message preview, active duplicate keys are bounded, and closure causes stay distinct. | `signal-introspect/tests/system_event.rs` validates the no-payload invariant; `tests/coalescer.rs` covers exact identity, interval, explicit/shutdown flush, and observable eviction/cardinality. |
+| Adding the system-event family does not rewrite old archives. The sema kernel remains schema version 3 because existing families are byte-identical; the additive `system-event-summary` family starts at archive version 1 and the component release advances to 0.3.0. | `tests/store.rs::additive_system_event_table_migration_keeps_version_three_observations_readable` creates a pre-family version-3 store, then opens it with the new registration and reads the old observation. |
 | `DeliveryTraceKey` is introspection-domain state and has four fields: engine, message identifier, originator component, and hop index. | `signal-introspect` round trips the key; `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records matching and nonmatching events, range-queries by the join key, and reads back only the four matching hops ordered by `hop_index`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured; `prototype_witness` composes the typed `RouterSummary` reply into `PrototypeWitness.router_seen`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts `router_seen == Some(ComponentReadiness::Ready)`. |
 | Subscription open returns a typed snapshot and the per-stream token. | Per-peer client tests assert the first reply is the contract's typed snapshot record. |

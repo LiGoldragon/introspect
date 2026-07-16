@@ -18,6 +18,8 @@ pub enum Error {
     },
     #[error("component trace ingestion failed: {detail}")]
     TraceIngestion { detail: String },
+    #[error("invalid targeted system event: {0}")]
+    InvalidSystemEvent(#[from] signal_introspect::SystemEventValidationError),
     #[error("signal frame: {0}")]
     SignalFrame(#[from] signal_frame::FrameError),
     #[error("triad runtime frame: {0}")]
