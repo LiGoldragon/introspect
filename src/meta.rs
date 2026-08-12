@@ -2,15 +2,15 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
+use dotos::{DotosEncode, DotosSource};
 use meta_signal_introspect::{
     Frame as MetaIntrospectFrame, FrameBody as MetaIntrospectFrameBody, MetaIntrospectReply,
     Operation as MetaIntrospectOperation,
 };
-use nota::{NotaEncode, NotaSource};
 use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply};
 use triad_runtime::{ComponentCommand, FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
 
-use crate::cli_argument::NotaCommandText;
+use crate::cli_argument::DotosCommandText;
 use crate::{Error, Result};
 
 const DEFAULT_META_INTROSPECT_SOCKET: &str = "/tmp/meta-introspect.sock";
@@ -136,7 +136,7 @@ impl MetaIntrospectCommand {
         let operation =
             MetaIntrospectOperationText::from_command(self.command)?.into_operation()?;
         let reply = MetaIntrospectClient::new(self.environment.endpoint()).submit(operation)?;
-        writeln!(output, "{}", reply.to_nota())?;
+        writeln!(output, "{}", reply.to_dotos())?;
         Ok(())
     }
 }
@@ -167,17 +167,17 @@ impl MetaIntrospectCommandEnvironment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MetaIntrospectOperationText {
-    text: NotaCommandText,
+    text: DotosCommandText,
 }
 
 impl MetaIntrospectOperationText {
     fn from_command(command: ComponentCommand) -> Result<Self> {
         Ok(Self {
-            text: NotaCommandText::from_command(command)?,
+            text: DotosCommandText::from_command(command)?,
         })
     }
 
     fn into_operation(self) -> Result<MetaIntrospectOperation> {
-        Ok(NotaSource::new(self.text.as_str()).parse::<MetaIntrospectOperation>()?)
+        Ok(DotosSource::new(self.text.as_str()).parse::<MetaIntrospectOperation>()?)
     }
 }

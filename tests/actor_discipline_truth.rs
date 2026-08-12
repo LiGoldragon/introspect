@@ -13,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use introspect::runtime::{
-    IntrospectionRoot, ManagerClient, NotaProjection, QueryPlanner, RouterClient, TargetDirectory,
+    DotosProjection, IntrospectionRoot, ManagerClient, QueryPlanner, RouterClient, TargetDirectory,
     TerminalClient,
 };
 use introspect::store::IntrospectionStore;
@@ -27,7 +27,7 @@ fn public_actor_nouns_carry_data() {
     assert!(std::mem::size_of::<ManagerClient>() > 0);
     assert!(std::mem::size_of::<RouterClient>() > 0);
     assert!(std::mem::size_of::<TerminalClient>() > 0);
-    assert!(std::mem::size_of::<NotaProjection>() > 0);
+    assert!(std::mem::size_of::<DotosProjection>() > 0);
 }
 
 #[test]

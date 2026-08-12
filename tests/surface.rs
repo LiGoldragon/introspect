@@ -7,7 +7,7 @@ use signal_persona::EngineIdentifier;
 
 #[test]
 fn command_surface_uses_contract_text_codec() {
-    let input = Input::from_nota("(PrototypeWitness (prototype))").expect("decode input");
+    let input = Input::from_dotos("(PrototypeWitness (prototype))").expect("decode input");
     match input {
         Input::PrototypeWitness(query) => {
             assert_eq!(query.engine, EngineIdentifier::new("prototype"));
@@ -25,7 +25,7 @@ fn command_surface_uses_contract_text_codec() {
     ));
 
     assert_eq!(
-        output.to_nota(),
+        output.to_dotos(),
         "(PrototypeWitness (prototype None (Some Ready) None (Some Routed)))",
     );
 }

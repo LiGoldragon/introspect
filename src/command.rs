@@ -1,11 +1,11 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use nota::NotaSource;
+use dotos::DotosSource;
 use signal_introspect::IntrospectionRequest;
 use triad_runtime::ComponentCommand;
 
-use crate::cli_argument::NotaCommandText;
+use crate::cli_argument::DotosCommandText;
 use crate::daemon::IntrospectionSignalClient;
 use crate::error::Result;
 use crate::surface::{Input, Output};
@@ -55,7 +55,7 @@ impl IntrospectCommandLine {
         let input = IntrospectInputText::from_command(self.command)?.into_input()?;
         let reply = IntrospectionSignalClient::new(self.environment.endpoint())
             .submit(input.into_request())?;
-        writeln!(output, "{}", Output::from_signal(reply).to_nota())?;
+        writeln!(output, "{}", Output::from_signal(reply).to_dotos())?;
         Ok(())
     }
 }
@@ -85,18 +85,18 @@ impl IntrospectCommandEnvironment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IntrospectInputText {
-    text: NotaCommandText,
+    text: DotosCommandText,
 }
 
 impl IntrospectInputText {
     fn from_command(command: ComponentCommand) -> Result<Self> {
         Ok(Self {
-            text: NotaCommandText::from_command(command)?,
+            text: DotosCommandText::from_command(command)?,
         })
     }
 
     fn into_input(self) -> Result<Input> {
-        Ok(NotaSource::new(self.text.as_str()).parse::<Input>()?)
+        Ok(DotosSource::new(self.text.as_str()).parse::<Input>()?)
     }
 }
 

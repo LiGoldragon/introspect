@@ -26,9 +26,9 @@ Before changing code in this repo, read:
 - Local observation audit state in `introspect.sema`, opened through
   `sema-engine`.
 - `introspect-daemon` starts from one signal-encoded rkyv
-  `IntrospectDaemonConfiguration` file. Inline NOTA and `.nota`
+  `IntrospectDaemonConfiguration` file. Inline DOTOS and `.dotos`
   startup files are rejected.
-- NOTA projection at the CLI edge.
+- DOTOS projection at the CLI edge.
 - The ordinary CLI uses `INTROSPECT_SOCKET` and the meta CLI uses
   `INTROSPECT_META_SOCKET`; both are thin one-argument clients over the
   daemon sockets.

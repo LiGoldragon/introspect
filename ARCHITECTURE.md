@@ -9,7 +9,7 @@ supervised alongside the operational first stack and gives the engine a way to
 explain itself through typed component observations. Its purpose is a witness,
 not a broad UI: the concrete first goal is that after a fixture is delivered,
 `introspect` asks the running components for typed observations and prints one
-NOTA proof of what happened.
+DOTOS proof of what happened.
 
 It is not in the message delivery path. It proves the delivery path after the
 fact; it is never in the delivery path itself.
@@ -37,7 +37,7 @@ browser-use, video editing).
 - `introspect-daemon`
 - `introspect` CLI
 - `meta-introspect` CLI
-- Kameo actors for query planning, target directory, target clients, NOTA
+- Kameo actors for query planning, target directory, target clients, DOTOS
   projection, and `IntrospectionStore` (state-bearing local store).
 - `ManagerClient`, `RouterClient`, `TerminalClient` — Kameo actors
   that hold each peer daemon's socket path and send typed Signal
@@ -74,7 +74,7 @@ browser-use, video editing).
   are persisted as typed records. Persisting trace events here is the
   persist-to-SEMA sink choice; the daemon-emitted binary frames are the same
   whether a client persists them or only displays them.
-- NOTA projection for humans, agents, and future UIs.
+- DOTOS projection for humans, agents, and future UIs.
 - Targeted typed system-event admission and query over the ordinary Signal
   socket. `signal-introspect` owns the recursive domain/target/topic/curated
   event-error vocabulary. `IntrospectionStore` validates privacy invariants,
@@ -92,7 +92,7 @@ glue. The library owns both display and SEMA-log features; each component's
 trace CLI is a thin wrapper that enables and calls those features rather than
 reimplementing listener and decoder logic. The generic CLI trace-siting path
 lives as a `triad-runtime` helper, not one-off `schema-rust` emitter glue.
-A client therefore chooses its sink: display the stream as NOTA, or persist to
+A client therefore chooses its sink: display the stream as DOTOS, or persist to
 a SEMA database purpose-built for trace storage (the same `introspect.sema`
 shape). The emitting daemon emits typed binary trace frames regardless of which
 sink a client picks.
@@ -155,7 +155,7 @@ graph TD
     terminal["TerminalClient"]
     trace["ComponentTraceListener<br/>(owns the bound trace socket)"]
     store["IntrospectionStore<br/>(holds Engine handle to introspect.sema)"]
-    projection["NotaProjection"]
+    projection["DotosProjection"]
 
     root --> directory
     root --> planner
@@ -174,9 +174,9 @@ graph TD
 |---|---|
 | The daemon does not open peer database files. | Source scan and tests: no `redb::Database::open` in live path against peer paths. |
 | The daemon consumes `introspect.sema` through `sema-engine`. | `tests/store.rs`: root-handled requests persist a typed observation record, and the reopened store exposes the `sema-engine` operation log. Source scan: `Engine::open` call exists; no direct `redb` or `sema::Sema::open_with_schema` calls in this repo. |
-| `introspect-daemon` starts from binary Signal configuration, not NOTA. | `tests/daemon.rs`: rkyv configuration file is accepted by the real process entrypoint; inline NOTA and `.nota` files are rejected by the generated `DaemonCommand<IntrospectionDaemon>`. |
-| The working and meta CLIs each take one NOTA argument or NOTA file and speak only to daemon sockets. | `tests/daemon.rs::introspect_cli_reaches_working_socket_and_prints_typed_witness`; `tests/daemon.rs::meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection`. |
-| The CLI renders NOTA only at the edge. | CLI and projection tests; component clients return typed Signal replies; no daemon-local shadow NOTA codec is used in the runtime path. |
+| `introspect-daemon` starts from binary Signal configuration, not DOTOS. | `tests/daemon.rs`: rkyv configuration file is accepted by the real process entrypoint; inline DOTOS and `.dotos` files are rejected by the generated `DaemonCommand<IntrospectionDaemon>`. |
+| The working and meta CLIs each take one DOTOS argument or DOTOS file and speak only to daemon sockets. | `tests/daemon.rs::introspect_cli_reaches_working_socket_and_prints_typed_witness`; `tests/daemon.rs::meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection`. |
+| The CLI renders DOTOS only at the edge. | CLI and projection tests; component clients return typed Signal replies; no daemon-local shadow DOTOS codec is used in the runtime path. |
 | Prototype witness travels through Kameo actor root. | `tests/actor_runtime_truth.rs`. |
 | The daemon binds `introspect.sock` and serves Signal frames. | `tests/daemon.rs` via `checks.*.test-daemon-socket`. |
 | The daemon applies the configured working and owner-meta socket modes. | `checks.*.test-daemon-applies-configured-socket-mode`; `checks.*.test-daemon-answers-typed-meta-policy-relation`. |
@@ -251,7 +251,7 @@ The remaining work:
   own events. In testing mode the CLI is the log surface: the log socket
   routes back to the CLI, which displays all engine logs over the same wire
   substrate as production interaction, with no separate logging daemon or
-  sink, and the routing is configured by typed NOTA. Schema-emitted objects
+  sink, and the routing is configured by typed DOTOS. Schema-emitted objects
   carry optional-compilable, feature-gated logging hooks at the macro and
   emitter layer — off in production, on in testing — that log object usage
   through that same socket.

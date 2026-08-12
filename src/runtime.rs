@@ -57,7 +57,7 @@ pub struct IntrospectionRoot {
     terminal_client: ActorRef<TerminalClient>,
     trace_listener: ActorRef<ComponentTraceListener>,
     store: ActorRef<IntrospectionStore>,
-    projection: ActorRef<NotaProjection>,
+    projection: ActorRef<DotosProjection>,
     handled_queries: u64,
 }
 
@@ -79,7 +79,7 @@ impl IntrospectionRoot {
             input.targets.trace_socket,
             store.clone(),
         ));
-        let projection = NotaProjection::spawn(NotaProjection::new());
+        let projection = DotosProjection::spawn(DotosProjection::new());
         Ok(Self::spawn(Self {
             target_directory,
             query_planner,
@@ -714,11 +714,11 @@ impl Actor for TerminalClient {
 }
 
 #[derive(Debug)]
-pub struct NotaProjection {
+pub struct DotosProjection {
     rendered_outputs: u64,
 }
 
-impl NotaProjection {
+impl DotosProjection {
     pub fn new() -> Self {
         Self {
             rendered_outputs: 0,
@@ -730,13 +730,13 @@ impl NotaProjection {
     }
 }
 
-impl Default for NotaProjection {
+impl Default for DotosProjection {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Actor for NotaProjection {
+impl Actor for DotosProjection {
     type Args = Self;
     type Error = Infallible;
 

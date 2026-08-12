@@ -26,8 +26,8 @@ pub enum Error {
     TriadRuntimeFrame(#[from] triad_runtime::FrameError),
     #[error("sema-engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
-    #[error("nota decode: {0}")]
-    Nota(#[from] nota::NotaDecodeError),
+    #[error("dotos decode: {0}")]
+    Dotos(#[from] dotos::DotosDecodeError),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("argument: {0}")]
@@ -46,8 +46,8 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("NOTA file read failed at {path}: {source}")]
-    NotaFileRead {
+    #[error("DOTOS file read failed at {path}: {source}")]
+    DotosFileRead {
         path: PathBuf,
         source: std::io::Error,
     },

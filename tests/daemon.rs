@@ -12,6 +12,7 @@ use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use dotos::DotosEncode;
 use introspect::IntrospectionDaemonConfiguration;
 use introspect::daemon::{IntrospectionDaemon, IntrospectionSignalClient};
 use introspect::meta::{MetaIntrospectClient, MetaIntrospectEndpoint};
@@ -20,7 +21,6 @@ use meta_signal_introspect::{
     MetaIntrospectReply, Operation as MetaIntrospectOperation,
     OperationKind as MetaIntrospectOperationKind, UnimplementedReason,
 };
-use nota::NotaEncode;
 use signal_introspect::{
     BluetoothPowerEvent, BluetoothPowerObservation, BluetoothSystemEvent, BluetoothTarget,
     BluetoothTopic, BootIdentifier, ComponentSnapshotQuery, DeliveryTraceQuery,
@@ -287,7 +287,7 @@ fn introspect_cli_reaches_working_socket_and_prints_typed_witness() {
 #[test]
 fn meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection() {
     let daemon = DaemonProcess::spawn();
-    let request = MetaIntrospectOperation::Configure(daemon.configuration.clone()).to_nota();
+    let request = MetaIntrospectOperation::Configure(daemon.configuration.clone()).to_dotos();
     let output = Command::new(env!("CARGO_BIN_EXE_meta-introspect"))
         .env("INTROSPECT_META_SOCKET", &daemon.meta_socket)
         .arg(request)

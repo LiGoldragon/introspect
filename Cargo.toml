@@ -27,20 +27,20 @@ path = "src/bin/introspect_daemon.rs"
 
 [dependencies]
 kameo                     = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros"] }
-nota                 = { git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
+dotos                 = { git = "https://github.com/LiGoldragon/dotos.git", rev = "80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3" }
 rkyv                      = "0.8"
 sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
-signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
+signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", rev = "ca72b2d1151f5b3df536295b2ba68f039536ec19" }
 signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
 meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "main" }
 signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
 thiserror                 = "2"
 tokio                     = { version = "1", features = ["rt-multi-thread"] }
-triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", rev = "e44c07dbf314" }
 
 [build-dependencies]
-schema-rust = { git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema-rust = { git = "https://github.com/LiGoldragon/schema-rust.git", rev = "6179a7cf1394083244dd3f3e1d2709f9ec08f7db" }
 
 [dev-dependencies]
 tempfile = "3"
