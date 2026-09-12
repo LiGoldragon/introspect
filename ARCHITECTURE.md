@@ -225,9 +225,9 @@ a constraint; it is an intention, and belongs in §5.
 ## 5. Status
 
 The daemon binds a Unix socket, applies the requested socket mode
-when supplied, and serves `signal-introspect` frames
+when supplied, and serves `signal-introspect` `Signal<Query>` frames
 through the Kameo root. It also binds the owner meta socket and serves
-`meta-signal-introspect` frames; `Configure` is admitted to the wire but
+`meta-signal-introspect` Signal frames; `Configure` is admitted to the wire but
 returns typed `RequestUnimplemented(NotBuiltYet)` until hot reconfiguration
 has a reducer. `IntrospectionStore` consumes
 `introspect.sema` via `sema-engine`; the query/reply audit trail
@@ -251,7 +251,7 @@ The remaining work:
   observation. The router observation plane (Kameo
   `RouterObservationPlane`) answers `RouterRequest::Summary`,
   `RouterRequest::MessageTrace`, and `RouterRequest::ChannelState`.
-  `RouterClient` sends a real `RouterFrame` observation request for
+  `RouterClient` sends a real `signal_router::Frame` observation request for
   `RouterSummaryQuery`, parses the typed `RouterSummary`
   reply, and `prototype_witness()` composes the result into
   the router readiness position of `PrototypeWitnessObservation` as
