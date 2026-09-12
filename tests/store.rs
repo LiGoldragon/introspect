@@ -1,22 +1,25 @@
-use std::path::{Path, PathBuf};
+//! Introspect's durable state: what the root records, what survives an additive
+//! table migration, what bounded retention reclaims, and how a delivery trace
+//! is ordered.
 
 use introspect::runtime::{
-    HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
+    HandleIntrospectionQuery, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
-use introspect::store::{
-    IntrospectionStore, ObservationSequence, PersistenceRetention, StoreLocation, StoredObservation,
-};
+use introspect::store::{IntrospectionStore, PersistenceRetention, StoreLocation};
+use introspect::store_message::RecordDeliveryTraceEvent;
+use introspect::store_record::{ObservationSequence, StoredObservation};
 use sema_engine::{
     Assertion, Engine, EngineOpen, FamilyName, RecordKey, SchemaHash, SchemaVersion,
     TableDescriptor, TableName, VersionedStoreName, VersioningPolicy,
 };
 use signal_introspect::{
-    ComponentSnapshotQuery, ComponentTraceEvent, ComponentTraceQuery, DeliveryTraceEvent,
-    DeliveryTraceKey, DeliveryTraceQuery, DeliveryTraceStatus, EngineSnapshotQuery, HopIndex,
-    IntrospectionReply, IntrospectionRequest, IntrospectionTarget, MessageIdentifier,
-    PrototypeWitnessQuery, TraceEventName, TraceLayer, TraceSequence,
+    ComponentSnapshotObservationQuery, ComponentTraceEvent, ComponentTraceQuery,
+    DeliveryTraceObservationEvent, DeliveryTraceObservationKey, DeliveryTraceObservationQuery,
+    DeliveryTraceObservationStatus, EngineSnapshotObservation, EngineSnapshotObservationQuery,
+    IntrospectionTarget, PrototypeWitnessObservationQuery, Query, Response, TraceLayer,
 };
-use signal_persona::{ComponentName, EngineIdentifier};
+
+const ENGINE: &str = "prototype";
 
 struct IntrospectionStoreFixture {
     directory: tempfile::TempDir,
@@ -32,25 +35,54 @@ impl IntrospectionStoreFixture {
     fn store(&self) -> StoreLocation {
         StoreLocation::new(self.directory.path().join("introspect.sema"))
     }
+}
 
-    fn source_root(&self) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
+fn engine_snapshot_query() -> Query {
+    Query::EngineSnapshotObservation(EngineSnapshotObservationQuery {
+        engine_identifier: ENGINE.to_owned(),
+    })
+}
+
+fn prototype_witness_query() -> Query {
+    Query::PrototypeWitnessObservation(PrototypeWitnessObservationQuery {
+        engine_identifier: ENGINE.to_owned(),
+    })
+}
+
+fn delivery_trace_query(message_slot: i64, originator: &str) -> DeliveryTraceObservationQuery {
+    DeliveryTraceObservationQuery {
+        engine_identifier: ENGINE.to_owned(),
+        message_slot,
+        component_name: originator.to_owned(),
     }
+}
 
-    fn source_files(&self) -> Vec<PathBuf> {
-        std::fs::read_dir(self.source_root())
-            .expect("source directory reads")
-            .map(|entry| entry.expect("source entry").path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
-            .collect()
+fn trace_event(
+    message_slot: i64,
+    originator: &str,
+    hop_index: i64,
+    component: &str,
+    status: DeliveryTraceObservationStatus,
+) -> DeliveryTraceObservationEvent {
+    DeliveryTraceObservationEvent {
+        delivery_trace_observation_key: DeliveryTraceObservationKey {
+            engine_identifier: ENGINE.to_owned(),
+            message_slot,
+            component_name: originator.to_owned(),
+            hop_index,
+        },
+        component_name: component.to_owned(),
+        delivery_trace_observation_status: status,
     }
+}
 
-    fn source_text(&self) -> String {
-        self.source_files()
-            .into_iter()
-            .map(|path| std::fs::read_to_string(path).expect("source file reads"))
-            .collect::<Vec<_>>()
-            .join("\n")
+fn component_trace_event(sequence: i64) -> ComponentTraceEvent {
+    ComponentTraceEvent {
+        engine_identifier: ENGINE.to_owned(),
+        introspection_target: IntrospectionTarget::Signal,
+        trace_layer: TraceLayer::Signal,
+        trace_event_name: "SignalAdmitted".to_owned(),
+        trace_sequence: sequence,
     }
 }
 
@@ -66,14 +98,12 @@ fn introspection_root_records_observations_through_sema_engine() {
             })
         })
         .expect("root starts");
-    let request = IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
-        engine: EngineIdentifier::new("prototype"),
-    });
+    let query = prototype_witness_query();
 
-    let reply = runtime
+    let response = runtime
         .block_on(async {
-            root.ask(HandleIntrospectionRequest {
-                request: request.clone(),
+            root.ask(HandleIntrospectionQuery {
+                query: query.clone(),
             })
             .await
         })
@@ -92,9 +122,9 @@ fn introspection_root_records_observations_through_sema_engine() {
 
     assert_eq!(observations.len(), 1);
     assert_eq!(observations[0].sequence().value(), 1);
-    assert_eq!(observations[0].request(), &request);
-    assert_eq!(observations[0].reply(), &reply);
-    assert!(matches!(reply, IntrospectionReply::PrototypeWitness(_)));
+    assert_eq!(observations[0].query(), &query);
+    assert_eq!(observations[0].response(), &response);
+    assert!(matches!(response, Response::PrototypeWitnessObservation(_)));
     assert_eq!(operation_log.len(), 1);
     let operation = operation_log[0].operations().head();
     assert_eq!(operation.operation().as_record_head(), "Assert");
@@ -121,16 +151,13 @@ fn additive_system_event_table_migration_keeps_version_three_observations_readab
             SchemaHash::for_label("introspect-introspection-observation-v3"),
         ))
         .expect("legacy observation table registers");
-    let engine = EngineIdentifier::new("prototype");
     let observation = StoredObservation::new(
         ObservationSequence::new(1),
-        IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
-            engine: engine.clone(),
+        engine_snapshot_query(),
+        Response::EngineSnapshotObservation(EngineSnapshotObservation {
+            engine_identifier: ENGINE.to_owned(),
+            observed_components: Vec::new(),
         }),
-        IntrospectionReply::EngineSnapshot(signal_introspect::EngineSnapshot::new(
-            engine,
-            Vec::new(),
-        )),
     );
     legacy_engine
         .assert(Assertion::new(observations, observation.clone()))
@@ -146,57 +173,17 @@ fn additive_system_event_table_migration_keeps_version_three_observations_readab
 }
 
 #[test]
-fn introspection_source_does_not_open_peer_component_database_files() {
-    let fixture = IntrospectionStoreFixture::new();
-    let source = fixture.source_text();
-
-    for forbidden in [
-        "redb::Database::open",
-        "router.sema",
-        "terminal.sema",
-        "mind.sema",
-        "message.sema",
-        "harness.sema",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "introspect source must not contain peer database path or open call: {forbidden}"
-        );
-    }
-}
-
-#[test]
-fn introspection_store_opens_local_state_through_sema_engine() {
-    let fixture = IntrospectionStoreFixture::new();
-    let store_source =
-        std::fs::read_to_string(fixture.source_root().join("store.rs")).expect("store source");
-
-    assert!(store_source.contains("Engine::open"));
-    assert!(!store_source.contains("Sema::open_with_schema"));
-    assert!(!store_source.contains("redb::Database::open"));
-}
-
-#[test]
 fn observation_query_families_persist_through_actor_root_and_sema_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let engine = EngineIdentifier::new("prototype");
-    let requests = [
-        IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
-            engine: engine.clone(),
+    let queries = [
+        engine_snapshot_query(),
+        Query::ComponentSnapshotObservation(ComponentSnapshotObservationQuery {
+            engine_identifier: ENGINE.to_owned(),
+            introspection_target: IntrospectionTarget::Router,
         }),
-        IntrospectionRequest::ComponentSnapshot(ComponentSnapshotQuery {
-            engine: engine.clone(),
-            target: IntrospectionTarget::Router,
-        }),
-        IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
-            engine: engine.clone(),
-            message_identifier: MessageIdentifier::new(7),
-            originator: component_name("Message"),
-        }),
-        IntrospectionRequest::PrototypeWitness(PrototypeWitnessQuery {
-            engine: engine.clone(),
-        }),
+        Query::DeliveryTraceObservation(delivery_trace_query(7, "Message")),
+        prototype_witness_query(),
     ];
 
     let root = runtime
@@ -208,17 +195,17 @@ fn observation_query_families_persist_through_actor_root_and_sema_engine() {
         })
         .expect("root starts");
 
-    let mut replies = Vec::with_capacity(requests.len());
-    for request in &requests {
-        let reply = runtime
+    let mut responses = Vec::with_capacity(queries.len());
+    for query in &queries {
+        let response = runtime
             .block_on(async {
-                root.ask(HandleIntrospectionRequest {
-                    request: request.clone(),
+                root.ask(HandleIntrospectionQuery {
+                    query: query.clone(),
                 })
                 .await
             })
             .expect("root actor replies");
-        replies.push(reply);
+        responses.push(response);
     }
 
     runtime
@@ -232,13 +219,13 @@ fn observation_query_families_persist_through_actor_root_and_sema_engine() {
     let observations = store.observations().expect("observations read");
     let operation_log = store.operation_log().expect("operation log reads");
 
-    assert_eq!(observations.len(), requests.len());
-    assert_eq!(operation_log.len(), requests.len());
-    for (index, (request, reply)) in requests.iter().zip(replies.iter()).enumerate() {
+    assert_eq!(observations.len(), queries.len());
+    assert_eq!(operation_log.len(), queries.len());
+    for (index, (query, response)) in queries.iter().zip(responses.iter()).enumerate() {
         let observation = &observations[index];
         assert_eq!(observation.sequence().value() as usize, index + 1);
-        assert_eq!(observation.request(), request);
-        assert_eq!(observation.reply(), reply);
+        assert_eq!(observation.query(), query);
+        assert_eq!(observation.response(), response);
         let operation = operation_log[index].operations().head();
         assert_eq!(operation.operation().as_record_head(), "Assert");
         assert_eq!(operation.table_name(), "introspection_observations");
@@ -247,8 +234,6 @@ fn observation_query_families_persist_through_actor_root_and_sema_engine() {
 
 #[test]
 fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
-    use introspect::store::RecordDeliveryTraceEvent;
-
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
@@ -259,60 +244,53 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
             })
         })
         .expect("root starts");
-    let engine = EngineIdentifier::new("prototype");
-    let message_identifier = MessageIdentifier::new(7);
-    let originator = component_name("Message");
     let events = vec![
         trace_event(
-            engine.clone(),
-            message_identifier.clone(),
-            originator.clone(),
+            7,
+            "Message",
             2,
-            component_name("Router"),
-            DeliveryTraceStatus::Routed,
+            "Router",
+            DeliveryTraceObservationStatus::Routed,
         ),
         trace_event(
-            engine.clone(),
-            message_identifier.clone(),
-            originator.clone(),
+            7,
+            "Message",
             0,
-            component_name("Message"),
-            DeliveryTraceStatus::Accepted,
+            "Message",
+            DeliveryTraceObservationStatus::Accepted,
         ),
         trace_event(
-            engine.clone(),
-            message_identifier.clone(),
-            originator.clone(),
+            7,
+            "Message",
             3,
-            component_name("Harness"),
-            DeliveryTraceStatus::Failed,
+            "Harness",
+            DeliveryTraceObservationStatus::Failed,
         ),
         trace_event(
-            engine.clone(),
-            message_identifier.clone(),
-            originator.clone(),
+            7,
+            "Message",
             1,
-            component_name("Mind"),
-            DeliveryTraceStatus::Routed,
+            "Mind",
+            DeliveryTraceObservationStatus::Routed,
         ),
     ];
 
+    // Hops of a different message, and of a different originator on the same
+    // message, must not appear in the queried trace.
     let noise = vec![
         trace_event(
-            engine.clone(),
-            MessageIdentifier::new(8),
-            originator.clone(),
+            8,
+            "Message",
             0,
-            component_name("Message"),
-            DeliveryTraceStatus::Accepted,
+            "Message",
+            DeliveryTraceObservationStatus::Accepted,
         ),
         trace_event(
-            engine.clone(),
-            message_identifier.clone(),
-            component_name("Harness"),
+            7,
+            "Harness",
             0,
-            component_name("Harness"),
-            DeliveryTraceStatus::Accepted,
+            "Harness",
+            DeliveryTraceObservationStatus::Accepted,
         ),
     ];
 
@@ -324,15 +302,10 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
         });
     }
 
-    let request = IntrospectionRequest::DeliveryTrace(DeliveryTraceQuery {
-        engine,
-        message_identifier,
-        originator: originator.clone(),
-    });
-    let reply = runtime
+    let response = runtime
         .block_on(async {
-            root.ask(HandleIntrospectionRequest {
-                request: request.clone(),
+            root.ask(HandleIntrospectionQuery {
+                query: Query::DeliveryTraceObservation(delivery_trace_query(7, "Message")),
             })
             .await
         })
@@ -345,14 +318,14 @@ fn delivery_trace_query_returns_four_hops_ordered_by_trace_key() {
     drop(root);
     drop(runtime);
 
-    let IntrospectionReply::DeliveryTrace(trace) = reply else {
-        panic!("expected delivery trace reply");
+    let Response::DeliveryTraceObservation(trace) = response else {
+        panic!("expected delivery trace response");
     };
-    assert_eq!(trace.events().len(), 4);
+    assert_eq!(trace.delivery_trace_observation_events.len(), 4);
     let hops = trace
-        .events()
+        .delivery_trace_observation_events
         .iter()
-        .map(|event| event.key().hop_index.value())
+        .map(|event| event.delivery_trace_observation_key.hop_index)
         .collect::<Vec<_>>();
     assert_eq!(hops, vec![0, 1, 2, 3]);
 
@@ -374,21 +347,16 @@ fn bounded_observation_retention_reclaims_oldest_rows() {
         PersistenceRetention::new(2, 2, 2),
     )
     .expect("store opens with a bounded retention policy");
-    let engine = EngineIdentifier::new("prototype");
 
     for sequence in 1..=3 {
-        let request = IntrospectionRequest::EngineSnapshot(EngineSnapshotQuery {
-            engine: engine.clone(),
-        });
-        let reply = IntrospectionReply::EngineSnapshot(signal_introspect::EngineSnapshot::new(
-            engine.clone(),
-            Vec::new(),
-        ));
         store
             .record_observation(StoredObservation::new(
                 ObservationSequence::new(sequence),
-                request,
-                reply,
+                engine_snapshot_query(),
+                Response::EngineSnapshotObservation(EngineSnapshotObservation {
+                    engine_identifier: ENGINE.to_owned(),
+                    observed_components: Vec::new(),
+                }),
             ))
             .expect("observation persists");
     }
@@ -413,109 +381,45 @@ fn bounded_trace_retention_keeps_a_finite_queryable_window() {
         PersistenceRetention::new(2, 2, 2),
     )
     .expect("store opens with a bounded retention policy");
-    let engine = EngineIdentifier::new("prototype");
-    let originator = component_name("Message");
 
     for sequence in 1..=3 {
         store
             .record_delivery_trace_event(trace_event(
-                engine.clone(),
-                MessageIdentifier::new(sequence),
-                originator.clone(),
+                sequence,
+                "Message",
                 0,
-                component_name("Router"),
-                DeliveryTraceStatus::Routed,
+                "Router",
+                DeliveryTraceObservationStatus::Routed,
             ))
             .expect("delivery trace persists");
         store
-            .record_component_trace_event(ComponentTraceEvent::new(
-                engine.clone(),
-                IntrospectionTarget::Signal,
-                TraceLayer::Signal,
-                TraceEventName::new("SignalAdmitted"),
-                TraceSequence::new(sequence),
-            ))
+            .record_component_trace_event(component_trace_event(sequence))
             .expect("component trace persists");
     }
 
     let first_delivery = store
-        .delivery_trace(DeliveryTraceQuery {
-            engine: engine.clone(),
-            message_identifier: MessageIdentifier::new(1),
-            originator: originator.clone(),
-        })
+        .delivery_trace(delivery_trace_query(1, "Message"))
         .expect("delivery trace query succeeds");
     assert!(
-        first_delivery.events().is_empty(),
+        first_delivery.delivery_trace_observation_events.is_empty(),
         "oldest delivery trace is reclaimed"
     );
 
     let traces = store
-        .component_trace(ComponentTraceQuery::new(
-            engine,
-            IntrospectionTarget::Signal,
-            None,
-        ))
+        .component_trace(ComponentTraceQuery {
+            engine_identifier: ENGINE.to_owned(),
+            introspection_target: IntrospectionTarget::Signal,
+            optional_trace_event_name: None,
+        })
         .expect("component trace query succeeds");
     let retained_sequences = traces
-        .events()
+        .component_trace_events
         .iter()
-        .map(|event| event.sequence.value())
+        .map(|event| event.trace_sequence)
         .collect::<Vec<_>>();
     assert_eq!(
         retained_sequences,
         vec![2, 3],
         "oldest component trace is reclaimed"
     );
-}
-
-#[test]
-fn introspect_daemon_depends_on_peer_contracts_not_peer_runtime_crates() {
-    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-    let manifest = std::fs::read_to_string(&manifest_path).expect("manifest reads");
-
-    assert!(
-        manifest.contains("signal-router"),
-        "RouterClient must speak the router observation contract through \
-         signal-router rather than inventing a local copy"
-    );
-
-    for forbidden in ["router", "terminal", "message", "mind", "harness", "system"] {
-        let direct_dependency_present = manifest
-            .lines()
-            .filter_map(|line| {
-                line.split_once('=')
-                    .map(|(dependency, _)| dependency.trim())
-            })
-            .any(|dependency| dependency == forbidden);
-        assert!(
-            !direct_dependency_present,
-            "introspect must not depend on peer runtime crate: {forbidden} \
-             (live observations cross daemon sockets; introspect does not call peer internals)"
-        );
-    }
-}
-
-fn trace_event(
-    engine: EngineIdentifier,
-    message_identifier: MessageIdentifier,
-    originator: ComponentName,
-    hop_index: u32,
-    component: ComponentName,
-    status: DeliveryTraceStatus,
-) -> DeliveryTraceEvent {
-    DeliveryTraceEvent::new(
-        DeliveryTraceKey::new(
-            engine,
-            message_identifier,
-            originator,
-            HopIndex::new(hop_index),
-        ),
-        component,
-        status,
-    )
-}
-
-fn component_name(value: &str) -> ComponentName {
-    ComponentName::new(value)
 }

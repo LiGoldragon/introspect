@@ -1,33 +1,40 @@
-//! Load-bearing slice test (716 test_plan step 3): the end-to-end
-//! tracing -> introspect path. An emitting component PUSHES
-//! `ComponentTraceEvent` frames over a Unix trace socket; introspect's
-//! `ComponentTraceListener` PULLS them off the socket into its sema store; an
-//! introspect-owned `ComponentTrace` query returns them filtered by component
-//! and event name. No mentci, no spirit dependency — the wire record is the
-//! shared `signal-introspect` contract type both ends import.
+//! Load-bearing slice test: the end-to-end tracing -> introspect path. An
+//! emitting component PUSHES `ComponentTraceEvent` Signal frames over a Unix
+//! trace socket; introspect's `ComponentTraceListener` PULLS them off the
+//! socket into its sema store; an introspect-owned `ComponentTrace` query
+//! returns them filtered by component and event name. No mentci, no spirit
+//! dependency — the wire record is the shared `signal-introspect` contract
+//! type both ends import.
 
 use std::time::{Duration, Instant};
 
 use introspect::runtime::{
-    HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
+    HandleIntrospectionQuery, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use introspect::store::StoreLocation;
+use introspect::trace_frame::TracedComponentEvent;
 use signal_introspect::{
-    ComponentTraceEvent, ComponentTraceQuery, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, TraceEventName, TraceLayer, TraceSequence,
+    ComponentTraceEvent, ComponentTraceQuery, IntrospectionTarget, Query, Response, TraceLayer,
 };
-use signal_persona::EngineIdentifier;
 use triad_runtime::trace::TraceLog;
 
 /// One Signal-layer trace event for the prototype engine at the given sequence.
-fn signal_event(engine: &EngineIdentifier, event_name: &str, sequence: u64) -> ComponentTraceEvent {
-    ComponentTraceEvent::new(
-        engine.clone(),
-        IntrospectionTarget::Signal,
-        TraceLayer::Signal,
-        TraceEventName::new(event_name),
-        TraceSequence::new(sequence),
-    )
+fn signal_event(engine: &str, event_name: &str, sequence: i64) -> TracedComponentEvent {
+    TracedComponentEvent::new(ComponentTraceEvent {
+        engine_identifier: engine.to_owned(),
+        introspection_target: IntrospectionTarget::Signal,
+        trace_layer: TraceLayer::Signal,
+        trace_event_name: event_name.to_owned(),
+        trace_sequence: sequence,
+    })
+}
+
+fn component_trace_query(engine: &str, event_name: Option<&str>) -> ComponentTraceQuery {
+    ComponentTraceQuery {
+        engine_identifier: engine.to_owned(),
+        introspection_target: IntrospectionTarget::Signal,
+        optional_trace_event_name: event_name.map(str::to_owned),
+    }
 }
 
 /// Block until the trace socket the listener binds in `on_start` exists, so the
@@ -48,15 +55,15 @@ async fn query_component_trace(
     root: &kameo::actor::ActorRef<IntrospectionRoot>,
     query: ComponentTraceQuery,
 ) -> Vec<ComponentTraceEvent> {
-    let reply = root
-        .ask(HandleIntrospectionRequest {
-            request: IntrospectionRequest::ComponentTrace(query),
+    let response = root
+        .ask(HandleIntrospectionQuery {
+            query: Query::ComponentTrace(query),
         })
         .await
         .expect("root actor replies to component-trace query");
-    match reply {
-        IntrospectionReply::ComponentTrace(trace) => trace.into_events(),
-        other => panic!("expected ComponentTrace reply, got {other:?}"),
+    match response {
+        Response::ComponentTrace(trace) => trace.component_trace_events,
+        other => panic!("expected ComponentTrace response, got {other:?}"),
     }
 }
 
@@ -84,7 +91,6 @@ fn pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name()
     let directory = tempfile::tempdir().expect("tempdir");
     let trace_socket = directory.path().join("introspect-trace.sock");
     let store = StoreLocation::new(directory.path().join("introspect.sema"));
-    let engine = EngineIdentifier::new("prototype");
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
@@ -108,25 +114,28 @@ fn pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name()
     // The emitting component pushes three Signal-layer events over the socket,
     // exactly as spirit's testing-trace sink does, using the shared contract
     // type. Sequence order is the monotonic emission order.
-    let emitter = TraceLog::<ComponentTraceEvent>::socket(&trace_socket);
+    let emitter = TraceLog::<TracedComponentEvent>::socket(&trace_socket);
     emitter
-        .record_result(signal_event(&engine, "SignalStarted", 0))
+        .record_result(signal_event("prototype", "SignalStarted", 0))
         .expect("push SignalStarted");
     emitter
-        .record_result(signal_event(&engine, "SignalAdmitted", 1))
+        .record_result(signal_event("prototype", "SignalAdmitted", 1))
         .expect("push SignalAdmitted");
     emitter
-        .record_result(signal_event(&engine, "SignalReplied", 2))
+        .record_result(signal_event("prototype", "SignalReplied", 2))
         .expect("push SignalReplied");
 
-    // Component-wide query (event_name = None) returns all three in sequence
+    // Component-wide query (event name = None) returns all three in sequence
     // order once the listener has drained them into the store.
-    let all_query = ComponentTraceQuery::new(engine.clone(), IntrospectionTarget::Signal, None);
-    let all_events = runtime.block_on(await_drained(&root, all_query, 3));
+    let all_events = runtime.block_on(await_drained(
+        &root,
+        component_trace_query("prototype", None),
+        3,
+    ));
     assert_eq!(all_events.len(), 3, "all three pushed events were ingested");
     let names = all_events
         .iter()
-        .map(|event| event.event_name.as_str().to_owned())
+        .map(|event| event.trace_event_name.clone())
         .collect::<Vec<_>>();
     assert_eq!(
         names,
@@ -139,20 +148,18 @@ fn pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name()
     );
     let sequences = all_events
         .iter()
-        .map(|event| event.sequence.value())
+        .map(|event| event.trace_sequence)
         .collect::<Vec<_>>();
     assert_eq!(sequences, vec![0, 1, 2]);
 
     // Name-narrowed query returns exactly the one matching event.
-    let admitted_query = ComponentTraceQuery::new(
-        engine.clone(),
-        IntrospectionTarget::Signal,
-        Some(TraceEventName::new("SignalAdmitted")),
-    );
-    let admitted = runtime.block_on(query_component_trace(&root, admitted_query));
+    let admitted = runtime.block_on(query_component_trace(
+        &root,
+        component_trace_query("prototype", Some("SignalAdmitted")),
+    ));
     assert_eq!(admitted.len(), 1, "event-name filter narrows to one event");
-    assert_eq!(admitted[0].event_name, "SignalAdmitted");
-    assert_eq!(admitted[0].sequence.value(), 1);
+    assert_eq!(admitted[0].trace_event_name, "SignalAdmitted");
+    assert_eq!(admitted[0].trace_sequence, 1);
 
     runtime
         .block_on(root.stop_gracefully())

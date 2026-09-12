@@ -31,16 +31,9 @@
           "rust-src"
         ];
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-        schemaFilter =
-          path: type:
-          (type == "regular" || type == "directory")
-          && (builtins.match ".*/schema(/.*)?" path != null);
-        sourceFilter =
-          path: type:
-          (craneLib.filterCargoSources path type) || (schemaFilter path type);
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
-          filter = sourceFilter;
+          filter = craneLib.filterCargoSources;
           name = "source";
         };
         commonArgs = {
@@ -103,11 +96,25 @@
               cargoTestExtraArgs = "--test daemon meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection -- --exact";
             }
           );
-          test-introspection-store-uses-sema-engine = craneLib.cargoTest (
+          test-introspection-store = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
               cargoTestExtraArgs = "--test store";
+            }
+          );
+          test-datom-text-plane = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test datom_text";
+            }
+          );
+          test-component-trace-ingestion = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test component_trace";
             }
           );
           fmt = craneLib.cargoFmt { inherit src; };

@@ -7,12 +7,11 @@ use std::time::Duration;
 use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
 use kameo::error::{ActorStopReason, Infallible, SendError};
 use kameo::message::{Context, Message};
-use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, RequestPayload, SessionEpoch, SubReply,
-};
+use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply};
 use signal_introspect::{
-    ComponentReadiness, ComponentSnapshot, ComponentTraceEvent, EngineSnapshot, IntrospectionReply,
-    IntrospectionRequest, IntrospectionTarget, PrototypeWitness, PrototypeWitnessQuery,
+    ComponentReadiness, ComponentSnapshotObservation, EngineSnapshotObservation,
+    IntrospectionTarget, PrototypeWitnessObservation, PrototypeWitnessObservationQuery, Query,
+    Response,
 };
 use signal_persona::EngineIdentifier;
 use signal_router::{
@@ -23,11 +22,14 @@ use tokio::task::JoinHandle;
 use triad_runtime::trace::TraceSocketListener;
 
 use crate::error::{Error, Result};
-use crate::store::{
-    FlushTargetedSystemEvents, IntrospectionStore, ObservationSequence, ReadComponentTrace,
-    ReadDeliveryTrace, ReadSystemEvents, RecordComponentTraceEvent, RecordDeliveryTraceEvent,
-    RecordObservation, RecordTargetedSystemEvent, StoreLocation, StoredObservation,
+use crate::store::{IntrospectionStore, StoreLocation};
+use crate::store_message::{
+    FlushTargetedSystemEvents, ReadComponentTrace, ReadDeliveryTrace, ReadSystemEvents,
+    RecordComponentTraceEvent, RecordDeliveryTraceEvent, RecordObservation,
+    RecordTargetedSystemEvent,
 };
+use crate::store_record::{ObservationSequence, StoredObservation};
+use crate::trace_frame::TracedComponentEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetSocketDirectory {
@@ -57,7 +59,7 @@ pub struct IntrospectionRoot {
     terminal_client: ActorRef<TerminalClient>,
     trace_listener: ActorRef<ComponentTraceListener>,
     store: ActorRef<IntrospectionStore>,
-    projection: ActorRef<NotaProjection>,
+    projection: ActorRef<DatomProjection>,
     handled_queries: u64,
 }
 
@@ -79,7 +81,7 @@ impl IntrospectionRoot {
             input.targets.trace_socket,
             store.clone(),
         ));
-        let projection = NotaProjection::spawn(NotaProjection::new());
+        let projection = DatomProjection::spawn(DatomProjection::new());
         Ok(Self::spawn(Self {
             target_directory,
             query_planner,
@@ -95,13 +97,13 @@ impl IntrospectionRoot {
 
     async fn prototype_witness(
         &mut self,
-        query: PrototypeWitnessQuery,
-    ) -> Result<IntrospectionReply> {
+        query: PrototypeWitnessObservationQuery,
+    ) -> Result<Response> {
         self.handled_queries = self.handled_queries.saturating_add(1);
         let router_seen = match self
             .router_client
             .ask(QueryRouterSummary {
-                engine: query.engine.clone(),
+                engine: query.engine_identifier.clone(),
             })
             .await
         {
@@ -115,137 +117,119 @@ impl IntrospectionRoot {
             }
         };
 
-        Ok(IntrospectionReply::PrototypeWitness(PrototypeWitness {
-            engine: query.engine,
-            manager_seen: None,
-            router_seen,
-            terminal_seen: None,
-            delivery_status: None,
-        }))
+        Ok(Response::PrototypeWitnessObservation(
+            PrototypeWitnessObservation {
+                engine_identifier: query.engine_identifier,
+                first_optional_component_readiness: None,
+                second_optional_component_readiness: router_seen,
+                third_optional_component_readiness: None,
+                delivery_trace_observation_status_option: None,
+            },
+        ))
     }
 
-    async fn handle_request(
-        &mut self,
-        request: IntrospectionRequest,
-    ) -> Result<IntrospectionReply> {
-        match request {
-            IntrospectionRequest::EngineSnapshot(query) => {
+    async fn answer(&mut self, query: Query) -> Result<Response> {
+        match query {
+            Query::EngineSnapshotObservation(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                Ok(IntrospectionReply::EngineSnapshot(EngineSnapshot::new(
-                    query.engine,
-                    vec![
-                        IntrospectionTarget::EngineManager,
-                        IntrospectionTarget::Router,
-                        IntrospectionTarget::Terminal,
-                    ],
-                )))
+                Ok(Response::EngineSnapshotObservation(
+                    EngineSnapshotObservation {
+                        engine_identifier: query.engine_identifier,
+                        observed_components: vec![
+                            IntrospectionTarget::EngineManager,
+                            IntrospectionTarget::Router,
+                            IntrospectionTarget::Terminal,
+                        ],
+                    },
+                ))
             }
-            IntrospectionRequest::ComponentSnapshot(query) => {
+            Query::ComponentSnapshotObservation(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                Ok(IntrospectionReply::ComponentSnapshot(ComponentSnapshot {
-                    engine: query.engine,
-                    target: query.target,
-                    readiness: None,
-                }))
+                Ok(Response::ComponentSnapshotObservation(
+                    ComponentSnapshotObservation {
+                        engine_identifier: query.engine_identifier,
+                        introspection_target: query.introspection_target,
+                        optional_component_readiness: None,
+                    },
+                ))
             }
-            IntrospectionRequest::DeliveryTrace(query) => {
+            Query::DeliveryTraceObservation(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                let trace = match self.store.ask(ReadDeliveryTrace::new(query)).await {
-                    Ok(trace) => trace,
-                    Err(SendError::HandlerError(error)) => return Err(error),
-                    Err(error) => {
-                        return Err(Error::Actor {
-                            operation: "read delivery trace",
-                            detail: format!("{error:?}"),
-                        });
-                    }
-                };
-                Ok(IntrospectionReply::DeliveryTrace(trace))
+                let trace = self
+                    .ask_store(ReadDeliveryTrace::new(query), "read delivery trace")
+                    .await?;
+                Ok(Response::DeliveryTraceObservation(trace))
             }
-            IntrospectionRequest::ComponentTrace(query) => {
+            Query::ComponentTrace(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                let trace = match self.store.ask(ReadComponentTrace::new(query)).await {
-                    Ok(trace) => trace,
-                    Err(SendError::HandlerError(error)) => return Err(error),
-                    Err(error) => {
-                        return Err(Error::Actor {
-                            operation: "read component trace",
-                            detail: format!("{error:?}"),
-                        });
-                    }
-                };
-                Ok(IntrospectionReply::ComponentTrace(trace))
+                let trace = self
+                    .ask_store(ReadComponentTrace::new(query), "read component trace")
+                    .await?;
+                Ok(Response::ComponentTrace(trace))
             }
-            IntrospectionRequest::RecordSystemEvent(record) => {
-                let accepted = match self
-                    .store
-                    .ask(RecordTargetedSystemEvent::new(record.event))
-                    .await
-                {
-                    Ok(accepted) => accepted,
-                    Err(SendError::HandlerError(error)) => return Err(error),
-                    Err(error) => {
-                        return Err(Error::Actor {
-                            operation: "record targeted system event",
-                            detail: format!("{error:?}"),
-                        });
-                    }
-                };
-                Ok(IntrospectionReply::SystemEventAccepted(accepted))
+            Query::RecordSystemEvent(record) => {
+                let accepted = self
+                    .ask_store(
+                        RecordTargetedSystemEvent::new(record.system_event),
+                        "record targeted system event",
+                    )
+                    .await?;
+                Ok(Response::SystemEventAccepted(accepted))
             }
-            IntrospectionRequest::SystemEvents(query) => {
+            Query::SystemEvents(query) => {
                 self.handled_queries = self.handled_queries.saturating_add(1);
-                let events = match self.store.ask(ReadSystemEvents::new(query)).await {
-                    Ok(events) => events,
-                    Err(SendError::HandlerError(error)) => return Err(error),
-                    Err(error) => {
-                        return Err(Error::Actor {
-                            operation: "read targeted system events",
-                            detail: format!("{error:?}"),
-                        });
-                    }
-                };
-                Ok(IntrospectionReply::SystemEvents(events))
+                let events = self
+                    .ask_store(ReadSystemEvents::new(query), "read targeted system events")
+                    .await?;
+                Ok(Response::SystemEvents(events))
             }
-            IntrospectionRequest::FlushSystemEvents(flush) => {
-                let flushed = match self
-                    .store
-                    .ask(FlushTargetedSystemEvents::new(flush.boot))
-                    .await
-                {
-                    Ok(flushed) => flushed,
-                    Err(SendError::HandlerError(error)) => return Err(error),
-                    Err(error) => {
-                        return Err(Error::Actor {
-                            operation: "flush targeted system events",
-                            detail: format!("{error:?}"),
-                        });
-                    }
-                };
-                Ok(IntrospectionReply::SystemEventsFlushed(flushed))
+            Query::FlushSystemEvents(flush) => {
+                let flushed = self
+                    .ask_store(
+                        FlushTargetedSystemEvents::new(flush.boot_identifier),
+                        "flush targeted system events",
+                    )
+                    .await?;
+                Ok(Response::SystemEventsFlushed(flushed))
             }
-            IntrospectionRequest::PrototypeWitness(query) => self.prototype_witness(query).await,
+            Query::PrototypeWitnessObservation(query) => self.prototype_witness(query).await,
         }
     }
 
-    async fn record_observation(
+    /// Ask the store one message, folding kameo's transport failures into the
+    /// component's own error so every store operation reads the same way.
+    async fn ask_store<StoreMessage, Answer>(
         &self,
-        request: IntrospectionRequest,
-        reply: IntrospectionReply,
-    ) -> Result<()> {
-        let observation = StoredObservation::new(
-            ObservationSequence::new(self.handled_queries),
-            request,
-            reply,
-        );
-        match self.store.ask(RecordObservation::new(observation)).await {
-            Ok(_receipt) => Ok(()),
+        message: StoreMessage,
+        operation: &'static str,
+    ) -> Result<Answer>
+    where
+        IntrospectionStore: Message<StoreMessage, Reply = Result<Answer>>,
+        StoreMessage: Send + 'static,
+        Answer: Send + 'static,
+    {
+        match self.store.ask(message).await {
+            Ok(answer) => Ok(answer),
             Err(SendError::HandlerError(error)) => Err(error),
             Err(error) => Err(Error::Actor {
-                operation: "record introspection observation",
+                operation,
                 detail: format!("{error:?}"),
             }),
         }
+    }
+
+    async fn record_observation(&self, query: Query, response: Response) -> Result<()> {
+        let observation = StoredObservation::new(
+            ObservationSequence::new(self.handled_queries),
+            query,
+            response,
+        );
+        self.ask_store(
+            RecordObservation::new(observation),
+            "record introspection observation",
+        )
+        .await
+        .map(|_receipt| ())
     }
 
     async fn stop_children(&self) {
@@ -296,42 +280,42 @@ impl Actor for IntrospectionRoot {
 }
 
 pub struct ExplainPrototypeWitness {
-    pub query: PrototypeWitnessQuery,
+    pub query: PrototypeWitnessObservationQuery,
 }
 
 impl Message<ExplainPrototypeWitness> for IntrospectionRoot {
-    type Reply = Result<IntrospectionReply>;
+    type Reply = Result<Response>;
 
     async fn handle(
         &mut self,
         message: ExplainPrototypeWitness,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let request = IntrospectionRequest::PrototypeWitness(message.query);
-        let reply = self.handle_request(request.clone()).await?;
-        self.record_observation(request, reply.clone()).await?;
-        Ok(reply)
+        let query = Query::PrototypeWitnessObservation(message.query);
+        let response = self.answer(query.clone()).await?;
+        self.record_observation(query, response.clone()).await?;
+        Ok(response)
     }
 }
 
-pub struct HandleIntrospectionRequest {
-    pub request: IntrospectionRequest,
+pub struct HandleIntrospectionQuery {
+    pub query: Query,
 }
 
-impl Message<HandleIntrospectionRequest> for IntrospectionRoot {
-    type Reply = Result<IntrospectionReply>;
+impl Message<HandleIntrospectionQuery> for IntrospectionRoot {
+    type Reply = Result<Response>;
 
     async fn handle(
         &mut self,
-        message: HandleIntrospectionRequest,
+        message: HandleIntrospectionQuery,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let request = message.request;
-        let reply = self.handle_request(request.clone()).await?;
-        if !matches!(&request, IntrospectionRequest::RecordSystemEvent(_)) {
-            self.record_observation(request, reply.clone()).await?;
+        let query = message.query;
+        let response = self.answer(query.clone()).await?;
+        if !matches!(&query, Query::RecordSystemEvent(_)) {
+            self.record_observation(query, response.clone()).await?;
         }
-        Ok(reply)
+        Ok(response)
     }
 }
 
@@ -343,14 +327,9 @@ impl Message<RecordDeliveryTraceEvent> for IntrospectionRoot {
         message: RecordDeliveryTraceEvent,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        match self.store.ask(message).await {
-            Ok(_receipt) => Ok(()),
-            Err(SendError::HandlerError(error)) => Err(error),
-            Err(error) => Err(Error::Actor {
-                operation: "record delivery trace event",
-                detail: format!("{error:?}"),
-            }),
-        }
+        self.ask_store(message, "record delivery trace event")
+            .await
+            .map(|_receipt| ())
     }
 }
 
@@ -441,6 +420,13 @@ impl Actor for ManagerClient {
     }
 }
 
+/// The router observation client.
+///
+/// `signal-router` is a peer contract still on the exchange-envelope wire: its
+/// `Frame` is a `signal-frame` bound exchange frame, not an ethos-root Signal.
+/// Introspect speaks the peer's contract as the peer publishes it, so this one
+/// path keeps the envelope while introspect's own planes carry bare Signal
+/// frames.
 #[derive(Debug)]
 pub struct RouterClient {
     socket: Option<PathBuf>,
@@ -462,13 +448,10 @@ impl RouterClient {
         let mut stream = UnixStream::connect(socket)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = RouterRequest::Summary(RouterSummaryQuery::new(
-            RouterEngineIdentifier::new(engine.payload().clone()).into(),
-        ));
-        let frame = RouterFrame::new(RouterFrameBody::Request {
-            exchange: Self::router_exchange(),
-            request: request.into_request(),
-        });
+        let frame = RouterRequest::Summary(RouterSummaryQuery::new(
+            RouterEngineIdentifier::new(engine.clone()).into(),
+        ))
+        .into_frame(Self::router_exchange());
         stream.write_all(&frame.encode_length_prefixed()?)?;
         stream.flush()?;
         let reply = RouterClientFrameCodec::default().read_frame(&mut stream)?;
@@ -491,9 +474,7 @@ impl RouterClient {
             RouterFrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
                     SubReply::Ok(RouterReply::Summary(summary)) => {
-                        if summary.engine.payload().payload().as_str()
-                            == expected_engine.payload().as_str()
-                        {
+                        if summary.engine.payload().payload().as_str() == expected_engine.as_str() {
                             Ok(Some(ComponentReadiness::Ready))
                         } else {
                             Ok(Some(ComponentReadiness::NotReady))
@@ -587,8 +568,8 @@ impl Default for RouterClientFrameCodec {
 }
 
 /// The component-trace ingestion plane. Owns the bound trace socket and a
-/// background drain task that pulls pushed [`ComponentTraceEvent`] frames off
-/// the socket and forwards each to the store as a `RecordComponentTraceEvent`.
+/// background drain task that pulls pushed `ComponentTraceEvent` Signal frames
+/// off the socket and forwards each to the store.
 ///
 /// Mirrors `RouterClient`'s socket discipline (sync socket IO behind
 /// `spawn_blocking`), but for ingestion rather than query: spirit (and, later,
@@ -627,7 +608,7 @@ impl ComponentTraceListener {
     /// the store's fallible `Result` reply is consumed here rather than panicking
     /// the store actor on the tell-of-fallible-handler trap.
     async fn drain(
-        listener: Arc<TraceSocketListener<ComponentTraceEvent>>,
+        listener: Arc<TraceSocketListener<TracedComponentEvent>>,
         store: ActorRef<IntrospectionStore>,
     ) {
         while store.is_alive() {
@@ -642,7 +623,7 @@ impl ComponentTraceListener {
             };
             for event in events {
                 if store
-                    .ask(RecordComponentTraceEvent::new(event))
+                    .ask(RecordComponentTraceEvent::new(event.into_event()))
                     .await
                     .is_err()
                 {
@@ -663,7 +644,7 @@ impl Actor for ComponentTraceListener {
     ) -> std::result::Result<Self, Self::Error> {
         if let Some(socket) = state.socket.clone() {
             let listener =
-                TraceSocketListener::<ComponentTraceEvent>::bind(socket).map_err(|error| {
+                TraceSocketListener::<TracedComponentEvent>::bind(socket).map_err(|error| {
                     Error::TraceIngestion {
                         detail: error.to_string(),
                     }
@@ -713,12 +694,13 @@ impl Actor for TerminalClient {
     }
 }
 
+/// The text projection plane: what introspect has rendered as datom.
 #[derive(Debug)]
-pub struct NotaProjection {
+pub struct DatomProjection {
     rendered_outputs: u64,
 }
 
-impl NotaProjection {
+impl DatomProjection {
     pub fn new() -> Self {
         Self {
             rendered_outputs: 0,
@@ -730,13 +712,13 @@ impl NotaProjection {
     }
 }
 
-impl Default for NotaProjection {
+impl Default for DatomProjection {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Actor for NotaProjection {
+impl Actor for DatomProjection {
     type Args = Self;
     type Error = Infallible;
 

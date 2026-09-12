@@ -1,25 +1,30 @@
+//! Introspect's own durable state: a `sema-engine` store of answered
+//! observations, delivery-trace hops, component-trace events and coalesced
+//! system-event summaries. Introspect opens this store and no other — peer
+//! observations cross daemon sockets, never peer database files.
+
 use std::path::{Path, PathBuf};
 
-use kameo::actor::{Actor, ActorRef, WeakActorRef};
-use kameo::error::{ActorStopReason, Infallible};
-use kameo::message::{Context, Message};
-use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use sema_engine::{
-    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, FamilyName, KeyRange, Mutation,
-    QueryPlan, RecordKey, Retraction, SchemaHash, SchemaVersion, SnapshotIdentifier,
-    TableDescriptor, TableName, TableReference, VersionedStoreName, VersioningPolicy,
+    Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
+    Retraction, SchemaHash, SchemaVersion, TableDescriptor, TableName, TableReference,
+    VersionedStoreName, VersioningPolicy,
 };
 use signal_introspect::{
     BootIdentifier, CoalescedSystemEvent, CoalescingClosure, ComponentTrace, ComponentTraceEvent,
-    ComponentTraceQuery, DeliveryTrace, DeliveryTraceEvent, DeliveryTraceJoinKey,
-    DeliveryTraceQuery, ExactCoalescingStatus, IntrospectionReply, IntrospectionRequest,
-    IntrospectionTarget, SystemEvent, SystemEventAccepted, SystemEventSummaries, SystemEvents,
-    SystemEventsFlushed, SystemEventsQuery,
+    ComponentTraceQuery, DeliveryTraceObservation, DeliveryTraceObservationEvent,
+    DeliveryTraceObservationQuery, ExactCoalescingStatus, SystemEvent, SystemEventAccepted,
+    SystemEvents, SystemEventsFlushed, SystemEventsQuery,
 };
-use signal_persona::EngineIdentifier;
 
 use crate::Result;
 use crate::coalescer::{ExactCoalescingPolicy, ExactDuplicateCoalescer};
+use crate::contract::{CoalescedReading, system_event_domain, validate_system_event};
+use crate::store_record::{
+    ObservationReceipt, ObservationSequence, StoredComponentTraceEvent, StoredDeliveryTraceEvent,
+    StoredObservation, StoredSystemEventSummary, component_trace_matches, component_trace_range,
+    delivery_trace_matches, delivery_trace_range,
+};
 
 const INTROSPECTION_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(3);
 const OBSERVATIONS: TableName = TableName::new("introspection_observations");
@@ -216,52 +221,56 @@ impl IntrospectionStore {
 
     pub fn record_delivery_trace_event(
         &self,
-        event: DeliveryTraceEvent,
+        event: DeliveryTraceObservationEvent,
     ) -> Result<ObservationReceipt> {
-        let stored_event = StoredDeliveryTraceEvent::new(event.clone());
+        let hop_index = event.delivery_trace_observation_key.hop_index;
+        let stored_event = StoredDeliveryTraceEvent::new(event);
         let receipt = self
             .engine
             .assert(Assertion::new(self.delivery_trace_events, stored_event))?;
         self.reclaim_delivery_trace_events()?;
         Ok(ObservationReceipt::new(
-            ObservationSequence::new(event.key().hop_index.value() as u64),
+            ObservationSequence::new(hop_index as u64),
             receipt.snapshot(),
         ))
     }
 
-    pub fn delivery_trace(&self, query: DeliveryTraceQuery) -> Result<DeliveryTrace> {
+    pub fn delivery_trace(
+        &self,
+        query: DeliveryTraceObservationQuery,
+    ) -> Result<DeliveryTraceObservation> {
         let mut events = self
             .engine
             .match_records(QueryPlan::key_range(
                 self.delivery_trace_events,
-                DeliveryTraceQueryRange::from_query(&query).into_range(),
+                delivery_trace_range(&query),
             ))?
             .records()
             .iter()
-            .filter(|stored_event| stored_event.event().key().matches_query(&query))
-            .map(|stored_event| stored_event.event().clone())
+            .filter(|stored| delivery_trace_matches(stored.event(), &query))
+            .map(|stored| stored.event().clone())
             .collect::<Vec<_>>();
-        events.sort_by_key(|event| event.key().hop_index);
-        Ok(DeliveryTrace::new(
-            query.engine,
-            query.message_identifier,
-            query.originator,
-            events,
-        ))
+        events.sort_by_key(|event| event.delivery_trace_observation_key.hop_index);
+        Ok(DeliveryTraceObservation {
+            engine_identifier: query.engine_identifier,
+            message_slot: query.message_slot,
+            component_name: query.component_name,
+            delivery_trace_observation_events: events,
+        })
     }
 
     pub fn record_component_trace_event(
         &self,
         event: ComponentTraceEvent,
     ) -> Result<ObservationReceipt> {
-        let sequence = event.sequence.value();
+        let sequence = event.trace_sequence;
         let stored_event = StoredComponentTraceEvent::new(event);
         let receipt = self
             .engine
             .assert(Assertion::new(self.component_trace_events, stored_event))?;
         self.reclaim_component_trace_events()?;
         Ok(ObservationReceipt::new(
-            ObservationSequence::new(sequence),
+            ObservationSequence::new(sequence as u64),
             receipt.snapshot(),
         ))
     }
@@ -271,15 +280,19 @@ impl IntrospectionStore {
             .engine
             .match_records(QueryPlan::key_range(
                 self.component_trace_events,
-                ComponentTraceQueryRange::from_query(&query).into_range(),
+                component_trace_range(&query),
             ))?
             .records()
             .iter()
-            .filter(|stored_event| stored_event.event().matches_query(&query))
-            .map(|stored_event| stored_event.event().clone())
+            .filter(|stored| component_trace_matches(stored.event(), &query))
+            .map(|stored| stored.event().clone())
             .collect::<Vec<_>>();
-        events.sort_by_key(|event| event.sequence);
-        Ok(ComponentTrace::new(query.engine, query.component, events))
+        events.sort_by_key(|event| event.trace_sequence);
+        Ok(ComponentTrace {
+            engine_identifier: query.engine_identifier,
+            introspection_target: query.introspection_target,
+            component_trace_events: events,
+        })
     }
 
     fn reclaim_observations(&self) -> Result<()> {
@@ -337,8 +350,8 @@ impl IntrospectionStore {
             .to_vec();
         records.sort_by_key(|record| {
             (
-                record.summary().first_seen,
-                record.summary().representative.identifier,
+                record.summary().first_seen(),
+                record.summary().representative().event_identifier,
             )
         });
         let excess = records
@@ -354,7 +367,9 @@ impl IntrospectionStore {
     }
 
     pub fn record_system_event(&mut self, event: SystemEvent) -> Result<SystemEventAccepted> {
-        event.validate().map_err(crate::Error::from)?;
+        validate_system_event(&event).map_err(|fault| crate::Error::UnexpectedArgument {
+            got: fault.to_string(),
+        })?;
         let update = self.exact_coalescer.ingest(event);
         for summary in update.closed() {
             self.persist_system_event_summary(summary.clone())?;
@@ -370,18 +385,27 @@ impl IntrospectionStore {
             .records()
             .iter()
             .map(|stored| stored.summary().clone())
-            .filter(|summary| summary.representative.boot == query.boot)
+            .filter(|summary| summary.representative().boot_identifier == query.boot_identifier)
             .filter(|summary| {
                 query
-                    .domain
-                    .is_none_or(|domain| summary.representative.classification.domain() == domain)
+                    .system_event_domain_option
+                    .as_ref()
+                    .is_none_or(|domain| {
+                        &system_event_domain(&summary.representative().targeted_system_event)
+                            == domain
+                    })
             })
             .collect::<Vec<_>>();
-        summaries.sort_by_key(|summary| (summary.first_seen, summary.representative.identifier));
+        summaries.sort_by_key(|summary| {
+            (
+                summary.first_seen(),
+                summary.representative().event_identifier,
+            )
+        });
         Ok(SystemEvents {
-            boot: query.boot,
-            summaries: SystemEventSummaries::new(summaries),
-            coalescing: self.exact_coalescer.status(),
+            boot_identifier: query.boot_identifier,
+            system_event_summaries: summaries,
+            exact_coalescing_status: self.exact_coalescer.status(),
         })
     }
 
@@ -395,8 +419,8 @@ impl IntrospectionStore {
             self.persist_system_event_summary(summary.clone())?;
         }
         Ok(SystemEventsFlushed {
-            boot,
-            summaries: SystemEventSummaries::new(summaries),
+            boot_identifier: boot,
+            system_event_summaries: summaries,
         })
     }
 
@@ -427,501 +451,11 @@ impl IntrospectionStore {
     pub fn operation_log(&self) -> Result<Vec<CommitLogEntry>> {
         Ok(self.engine.commit_log()?)
     }
-}
 
-impl Actor for IntrospectionStore {
-    type Args = Self;
-    type Error = Infallible;
-
-    async fn on_start(
-        state: Self::Args,
-        _actor_ref: ActorRef<Self>,
-    ) -> std::result::Result<Self, Self::Error> {
-        Ok(state)
-    }
-
-    async fn on_stop(
-        &mut self,
-        _actor_reference: WeakActorRef<Self>,
-        _reason: ActorStopReason,
-    ) -> std::result::Result<(), Self::Error> {
+    pub(crate) fn flush_on_shutdown(&mut self) {
         let summaries = self.exact_coalescer.flush_all(CoalescingClosure::Shutdown);
         for summary in summaries {
             let _ = self.persist_system_event_summary(summary);
         }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordObservation {
-    observation: StoredObservation,
-}
-
-impl RecordObservation {
-    pub fn new(observation: StoredObservation) -> Self {
-        Self { observation }
-    }
-}
-
-impl Message<RecordObservation> for IntrospectionStore {
-    type Reply = Result<ObservationReceipt>;
-
-    async fn handle(
-        &mut self,
-        message: RecordObservation,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.record_observation(message.observation)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordDeliveryTraceEvent {
-    event: DeliveryTraceEvent,
-}
-
-impl RecordDeliveryTraceEvent {
-    pub fn new(event: DeliveryTraceEvent) -> Self {
-        Self { event }
-    }
-}
-
-impl Message<RecordDeliveryTraceEvent> for IntrospectionStore {
-    type Reply = Result<ObservationReceipt>;
-
-    async fn handle(
-        &mut self,
-        message: RecordDeliveryTraceEvent,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.record_delivery_trace_event(message.event)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadDeliveryTrace {
-    query: DeliveryTraceQuery,
-}
-
-impl ReadDeliveryTrace {
-    pub fn new(query: DeliveryTraceQuery) -> Self {
-        Self { query }
-    }
-}
-
-impl Message<ReadDeliveryTrace> for IntrospectionStore {
-    type Reply = Result<DeliveryTrace>;
-
-    async fn handle(
-        &mut self,
-        message: ReadDeliveryTrace,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.delivery_trace(message.query)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordComponentTraceEvent {
-    event: ComponentTraceEvent,
-}
-
-impl RecordComponentTraceEvent {
-    pub fn new(event: ComponentTraceEvent) -> Self {
-        Self { event }
-    }
-}
-
-impl Message<RecordComponentTraceEvent> for IntrospectionStore {
-    type Reply = Result<ObservationReceipt>;
-
-    async fn handle(
-        &mut self,
-        message: RecordComponentTraceEvent,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.record_component_trace_event(message.event)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadComponentTrace {
-    query: ComponentTraceQuery,
-}
-
-impl ReadComponentTrace {
-    pub fn new(query: ComponentTraceQuery) -> Self {
-        Self { query }
-    }
-}
-
-impl Message<ReadComponentTrace> for IntrospectionStore {
-    type Reply = Result<ComponentTrace>;
-
-    async fn handle(
-        &mut self,
-        message: ReadComponentTrace,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.component_trace(message.query)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordTargetedSystemEvent {
-    event: SystemEvent,
-}
-
-impl RecordTargetedSystemEvent {
-    pub fn new(event: SystemEvent) -> Self {
-        Self { event }
-    }
-}
-
-impl Message<RecordTargetedSystemEvent> for IntrospectionStore {
-    type Reply = Result<SystemEventAccepted>;
-
-    async fn handle(
-        &mut self,
-        message: RecordTargetedSystemEvent,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.record_system_event(message.event)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReadSystemEvents {
-    query: SystemEventsQuery,
-}
-
-impl ReadSystemEvents {
-    pub fn new(query: SystemEventsQuery) -> Self {
-        Self { query }
-    }
-}
-
-impl Message<ReadSystemEvents> for IntrospectionStore {
-    type Reply = Result<SystemEvents>;
-
-    async fn handle(
-        &mut self,
-        message: ReadSystemEvents,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.system_events(message.query)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FlushTargetedSystemEvents {
-    boot: BootIdentifier,
-}
-
-impl FlushTargetedSystemEvents {
-    pub fn new(boot: BootIdentifier) -> Self {
-        Self { boot }
-    }
-}
-
-impl Message<FlushTargetedSystemEvents> for IntrospectionStore {
-    type Reply = Result<SystemEventsFlushed>;
-
-    async fn handle(
-        &mut self,
-        message: FlushTargetedSystemEvents,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.flush_system_events(message.boot, CoalescingClosure::ExplicitFlush)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReadObservations;
-
-impl Message<ReadObservations> for IntrospectionStore {
-    type Reply = Result<Vec<StoredObservation>>;
-
-    async fn handle(
-        &mut self,
-        _message: ReadObservations,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.observations()
-    }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[rkyv(derive(Debug))]
-pub struct ObservationSequence(u64);
-
-impl ObservationSequence {
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    pub const fn value(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ObservationReceipt {
-    sequence: ObservationSequence,
-    snapshot: SnapshotIdentifier,
-}
-
-impl ObservationReceipt {
-    pub fn new(sequence: ObservationSequence, snapshot: SnapshotIdentifier) -> Self {
-        Self { sequence, snapshot }
-    }
-
-    pub fn sequence(&self) -> ObservationSequence {
-        self.sequence
-    }
-
-    pub fn snapshot(&self) -> SnapshotIdentifier {
-        self.snapshot
-    }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredObservation {
-    sequence: ObservationSequence,
-    request: IntrospectionRequest,
-    reply: IntrospectionReply,
-}
-
-impl StoredObservation {
-    pub fn new(
-        sequence: ObservationSequence,
-        request: IntrospectionRequest,
-        reply: IntrospectionReply,
-    ) -> Self {
-        Self {
-            sequence,
-            request,
-            reply,
-        }
-    }
-
-    pub fn sequence(&self) -> ObservationSequence {
-        self.sequence
-    }
-
-    pub fn request(&self) -> &IntrospectionRequest {
-        &self.request
-    }
-
-    pub fn reply(&self) -> &IntrospectionReply {
-        &self.reply
-    }
-}
-
-impl EngineRecord for StoredObservation {
-    fn record_key(&self) -> RecordKey {
-        RecordKey::new(self.sequence.value().to_string())
-    }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredDeliveryTraceEvent {
-    event: DeliveryTraceEvent,
-}
-
-impl StoredDeliveryTraceEvent {
-    pub fn new(event: DeliveryTraceEvent) -> Self {
-        Self { event }
-    }
-
-    pub fn event(&self) -> &DeliveryTraceEvent {
-        &self.event
-    }
-}
-
-impl EngineRecord for StoredDeliveryTraceEvent {
-    fn record_key(&self) -> RecordKey {
-        DeliveryTraceEventRecordKey::from_event(&self.event).into_record_key()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DeliveryTraceEventRecordKey {
-    event: DeliveryTraceEvent,
-}
-
-impl DeliveryTraceEventRecordKey {
-    fn from_event(event: &DeliveryTraceEvent) -> Self {
-        Self {
-            event: event.clone(),
-        }
-    }
-
-    fn into_record_key(self) -> RecordKey {
-        let key = self.event.key();
-        let join_key = DeliveryTraceJoinKeyPrefix::from_join_key(&key.join_key()).into_string();
-        RecordKey::new(format!("{}/{:010}", join_key, key.hop_index.value()))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DeliveryTraceQueryRange {
-    query: DeliveryTraceQuery,
-}
-
-impl DeliveryTraceQueryRange {
-    fn from_query(query: &DeliveryTraceQuery) -> Self {
-        Self {
-            query: query.clone(),
-        }
-    }
-
-    fn into_range(self) -> KeyRange {
-        let prefix =
-            DeliveryTraceJoinKeyPrefix::from_join_key(&self.query.join_key()).into_string();
-        KeyRange::between(
-            RecordKey::new(format!("{prefix}/")),
-            RecordKey::new(format!("{prefix}/~")),
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DeliveryTraceJoinKeyPrefix {
-    key: DeliveryTraceJoinKey,
-}
-
-impl DeliveryTraceJoinKeyPrefix {
-    fn from_join_key(key: &DeliveryTraceJoinKey) -> Self {
-        Self { key: key.clone() }
-    }
-
-    fn into_string(self) -> String {
-        format!(
-            "{}/{}/{}",
-            self.key.engine.payload().as_str(),
-            self.key.message_identifier.clone().into_u64(),
-            self.key.originator.payload().as_str()
-        )
-    }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredComponentTraceEvent {
-    event: ComponentTraceEvent,
-}
-
-impl StoredComponentTraceEvent {
-    pub fn new(event: ComponentTraceEvent) -> Self {
-        Self { event }
-    }
-
-    pub fn event(&self) -> &ComponentTraceEvent {
-        &self.event
-    }
-}
-
-impl EngineRecord for StoredComponentTraceEvent {
-    fn record_key(&self) -> RecordKey {
-        ComponentTraceEventRecordKey::from_event(&self.event).into_record_key()
-    }
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredSystemEventSummary {
-    summary: CoalescedSystemEvent,
-}
-
-impl StoredSystemEventSummary {
-    pub fn new(summary: CoalescedSystemEvent) -> Self {
-        Self { summary }
-    }
-
-    pub fn summary(&self) -> &CoalescedSystemEvent {
-        &self.summary
-    }
-}
-
-impl EngineRecord for StoredSystemEventSummary {
-    fn record_key(&self) -> RecordKey {
-        let event = &self.summary.representative;
-        RecordKey::new(format!(
-            "{:016x}{:016x}/{:020}",
-            event.boot.high(),
-            event.boot.low(),
-            event.identifier.value()
-        ))
-    }
-}
-
-/// Per-event record key for `component_trace_events`: the component-trace
-/// equivalent of `DeliveryTraceEventRecordKey`. The key sorts events by
-/// `engine/component`, then by zero-padded `sequence` so a key-range scan
-/// over one component returns its events in monotonic emission order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ComponentTraceEventRecordKey {
-    event: ComponentTraceEvent,
-}
-
-impl ComponentTraceEventRecordKey {
-    fn from_event(event: &ComponentTraceEvent) -> Self {
-        Self {
-            event: event.clone(),
-        }
-    }
-
-    fn into_record_key(self) -> RecordKey {
-        let prefix =
-            ComponentTraceKeyPrefix::new(&self.event.engine, self.event.component).into_string();
-        RecordKey::new(format!("{}/{:020}", prefix, self.event.sequence.value()))
-    }
-}
-
-/// Key-range bounds for a `ComponentTraceQuery`: every event whose key shares
-/// the `engine/component` prefix, regardless of sequence or event name (the
-/// `event_name` narrowing is applied as an in-memory filter after the scan,
-/// mirroring `DeliveryTraceQueryRange`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ComponentTraceQueryRange {
-    query: ComponentTraceQuery,
-}
-
-impl ComponentTraceQueryRange {
-    fn from_query(query: &ComponentTraceQuery) -> Self {
-        Self {
-            query: query.clone(),
-        }
-    }
-
-    fn into_range(self) -> KeyRange {
-        let prefix =
-            ComponentTraceKeyPrefix::new(&self.query.engine, self.query.component).into_string();
-        KeyRange::between(
-            RecordKey::new(format!("{prefix}/")),
-            RecordKey::new(format!("{prefix}/~")),
-        )
-    }
-}
-
-/// The shared `engine/component` key prefix both the per-event record key and
-/// the query range derive from, so a stored event and a query that selects it
-/// always agree on the scan prefix.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ComponentTraceKeyPrefix {
-    engine: EngineIdentifier,
-    component: IntrospectionTarget,
-}
-
-impl ComponentTraceKeyPrefix {
-    fn new(engine: &EngineIdentifier, component: IntrospectionTarget) -> Self {
-        Self {
-            engine: engine.clone(),
-            component,
-        }
-    }
-
-    fn into_string(self) -> String {
-        format!("{}/{:?}", self.engine.payload().as_str(), self.component)
     }
 }

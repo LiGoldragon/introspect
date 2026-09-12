@@ -4,40 +4,39 @@
 //! binding, request gating, peer credentials, lifecycle, and the `ExitReport`
 //! entry) is emitted into `src/schema/daemon.rs` by schema-rust's daemon
 //! emitter under the **component-decoded** working tier. Introspect's ordinary
-//! socket speaks the hand-written `signal-introspect` `IntrospectionFrame`
-//! contract (not a schema-derived root), so the emitted shell owns listener
-//! mechanics while introspect owns the per-connection frame decode/encode and
-//! drives the existing `IntrospectionRoot` kameo actor tree.
+//! socket speaks the `signal-introspect` ethos root — one rkyv `Signal<Query>`
+//! in, one `Signal<Response>` out — so the emitted shell owns listener
+//! mechanics while introspect owns the per-connection Signal restore/form and
+//! drives the `IntrospectionRoot` kameo actor tree.
 //!
 //! Introspect fills the record-1488 escape hatches through
 //! `impl ComponentDaemon for IntrospectionDaemon`: how to load its binary
 //! `Configuration`, how to open its kameo engine (`build_runtime`), how one
-//! working `IntrospectionFrame` connection becomes a reply, and how the meta
-//! owner-only meta socket is served.
+//! working Signal connection becomes a reply, and how the owner-only meta
+//! socket is served.
 
 use std::path::{Path, PathBuf};
 
 use kameo::actor::ActorRef;
 use kameo::error::SendError;
 use meta_signal_introspect::{
-    Frame as MetaIntrospectFrame, FrameBody as MetaIntrospectFrameBody, MetaIntrospectReply,
-    Operation as MetaIntrospectOperation, RequestUnimplemented, UnimplementedReason,
+    ByteViewable as MetaByteViewable, MetaIntrospectOperationKind, Query as MetaIntrospectQuery,
+    RequestUnimplemented, Response as MetaIntrospectResponse, Restorable as MetaRestorable,
+    Signal as MetaIntrospectSignal, Signalizable as MetaSignalizable, UnimplementedReason,
 };
-use signal_frame::{ExchangeIdentifier, NonEmpty, Reply, Request, SubReply};
 use signal_introspect::{
-    IntrospectDaemonConfiguration, IntrospectionFrame, IntrospectionFrameBody as FrameBody,
-    IntrospectionReply, IntrospectionRequest,
+    ByteViewable, IntrospectDaemonConfiguration, Query, Response, Restorable, Signal, Signalizable,
 };
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use triad_runtime::{
-    AcceptedConnection, FrameBody as LengthPrefixedFrameBody, FrameError, LengthPrefixedCodec,
-    RequestConcurrencyLimit, SocketMode,
+    AcceptedConnection, FrameBody, FrameError, LengthPrefixedCodec, RequestConcurrencyLimit,
+    SocketMode,
 };
 
 use crate::error::Error;
 use crate::runtime::{
-    HandleIntrospectionRequest, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
+    HandleIntrospectionQuery, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use crate::store::StoreLocation;
 
@@ -59,14 +58,19 @@ pub enum IntrospectionDaemonError {
     #[error("daemon frame error: {0}")]
     Frame(#[from] FrameError),
 
-    #[error("daemon signal frame error: {0}")]
-    SignalFrame(#[from] signal_frame::FrameError),
+    #[error("daemon signal archive error: {detail}")]
+    SignalArchive { detail: String },
 
     #[error("introspect engine error: {0}")]
     Engine(#[from] Error),
+}
 
-    #[error("unexpected introspection frame: {got}")]
-    UnexpectedFrame { got: String },
+impl From<rkyv::rancor::Error> for IntrospectionDaemonError {
+    fn from(error: rkyv::rancor::Error) -> Self {
+        Self::SignalArchive {
+            detail: error.to_string(),
+        }
+    }
 }
 
 /// The engine the component-decoded daemon shell owns: the running kameo actor
@@ -95,17 +99,14 @@ impl IntrospectionEngine {
         Ok(Self { root })
     }
 
-    /// Drive one decoded introspection request through the root actor, returning
-    /// the reply payload.
-    async fn answer(
-        &self,
-        request: IntrospectionRequest,
-    ) -> Result<IntrospectionReply, IntrospectionDaemonError> {
-        match self.root.ask(HandleIntrospectionRequest { request }).await {
-            Ok(reply) => Ok(reply),
+    /// Drive one restored introspection query through the root actor, returning
+    /// the response.
+    async fn answer(&self, query: Query) -> Result<Response, IntrospectionDaemonError> {
+        match self.root.ask(HandleIntrospectionQuery { query }).await {
+            Ok(response) => Ok(response),
             Err(SendError::HandlerError(error)) => Err(IntrospectionDaemonError::Engine(error)),
             Err(error) => Err(IntrospectionDaemonError::Engine(Error::Actor {
-                operation: "handle introspection request",
+                operation: "handle introspection query",
                 detail: format!("{error:?}"),
             })),
         }
@@ -121,7 +122,7 @@ impl IntrospectionEngine {
 /// `triad_runtime::BindingSurface` projection the emitted shell drives:
 /// the working socket is the introspection-query socket, the meta socket is the
 /// owner-only `meta-signal-introspect` socket.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IntrospectionDaemonConfiguration {
     configuration: IntrospectDaemonConfiguration,
 }
@@ -135,14 +136,17 @@ impl IntrospectionDaemonConfiguration {
         self.configuration
     }
 
+    /// The basic meta operation of every component is daemon configuration: the
+    /// typed record the Persona manager encodes is itself the binary startup
+    /// message, read here as the rkyv archive of the contract type.
     pub fn from_signal_file(path: &Path) -> Result<Self, Error> {
         let bytes = std::fs::read(path).map_err(|source| Error::ConfigurationRead {
             path: path.to_path_buf(),
             source,
         })?;
-        IntrospectDaemonConfiguration::from_rkyv_bytes(bytes.as_slice())
+        rkyv::from_bytes::<IntrospectDaemonConfiguration, rkyv::rancor::Error>(bytes.as_slice())
             .map(Self::new)
-            .map_err(|_| Error::ConfigurationArchiveDecode)
+            .map_err(Error::from)
     }
 
     fn targets(&self) -> TargetSocketDirectory {
@@ -177,7 +181,7 @@ impl triad_runtime::BindingSurface for IntrospectionDaemonConfiguration {
 
     fn socket_mode(&self) -> Option<SocketMode> {
         Some(SocketMode::new(
-            *self.configuration.introspect_socket_mode.payload() as u32,
+            self.configuration.introspect_socket_mode as u32,
         ))
     }
 
@@ -193,7 +197,7 @@ impl triad_runtime::BindingSurface for IntrospectionDaemonConfiguration {
 
     fn meta_socket_mode(&self) -> Option<SocketMode> {
         Some(SocketMode::new(
-            *self.configuration.supervision_socket_mode.payload() as u32,
+            self.configuration.supervision_socket_mode as u32,
         ))
     }
 
@@ -202,7 +206,7 @@ impl triad_runtime::BindingSurface for IntrospectionDaemonConfiguration {
     }
 }
 
-impl crate::schema::daemon::ComponentDaemon for IntrospectionDaemon {
+impl crate::daemon_shell::ComponentDaemon for IntrospectionDaemon {
     type Configuration = IntrospectionDaemonConfiguration;
     type ConfigurationError = Error;
     type Engine = IntrospectionEngine;
@@ -223,17 +227,17 @@ impl crate::schema::daemon::ComponentDaemon for IntrospectionDaemon {
         Ok(())
     }
 
-    /// Serve one working introspection-query connection: decode the
-    /// `IntrospectionFrame` request off the accepted stream, drive it through
-    /// the `IntrospectionRoot` actor, and write the reply frame back.
+    /// Serve one working introspection-query connection: restore the `Query`
+    /// Signal off the accepted stream, drive it through the `IntrospectionRoot`
+    /// actor, and write the `Response` Signal back.
     async fn handle_working_connection(
         engine: &Self::Engine,
         connection: AcceptedConnection,
     ) -> Result<(), Self::Error> {
-        let mut transport = IntrospectionTransport::new(connection);
-        let received = transport.read_request().await?;
-        let reply = engine.answer(received.request).await?;
-        transport.write_reply(received.exchange, reply).await
+        let mut transport = SignalTransport::new(connection);
+        let query: Query = transport.read().await?;
+        let response = engine.answer(query).await?;
+        transport.write(response.signalize()?.bytes()).await
     }
 
     /// Serve one owner-only meta connection. The durable meta contract is
@@ -243,65 +247,59 @@ impl crate::schema::daemon::ComponentDaemon for IntrospectionDaemon {
         _engine: &Self::Engine,
         connection: AcceptedConnection,
     ) -> Result<(), Self::Error> {
-        let mut transport = MetaIntrospectTransport::new(connection);
-        let received = transport.read_request().await?;
-        let reply = MetaIntrospectReply::RequestUnimplemented(RequestUnimplemented {
-            operation: received.operation.kind(),
-            reason: UnimplementedReason::NotBuiltYet,
+        let mut transport = SignalTransport::new(connection);
+        let bytes = transport.read_bytes().await?;
+        let query = MetaIntrospectSignal::<MetaIntrospectQuery>::from(bytes).restore()?;
+        let response = MetaIntrospectResponse::RequestUnimplemented(RequestUnimplemented {
+            meta_introspect_operation_kind: meta_operation_kind(&query),
+            unimplemented_reason: UnimplementedReason::NotBuiltYet,
         });
-        transport.write_reply(received.exchange, reply).await
+        transport.write(response.signalize()?.bytes()).await
     }
 }
 
-/// The introspection-query wire transport over one accepted working connection:
-/// the triad length-prefix envelope wraps the bare `IntrospectionFrame` archive
-/// (the envelope owns the 4-byte length frame, so the inner codec speaks
-/// `encode`/`decode`, not `encode_length_prefixed`).
-struct IntrospectionTransport {
+/// Which meta operation a restored meta `Query` names. The contract's
+/// `MetaIntrospectOperationKind` is the closed set; this is its projection from
+/// the query variant.
+fn meta_operation_kind(query: &MetaIntrospectQuery) -> MetaIntrospectOperationKind {
+    match query {
+        MetaIntrospectQuery::Configure(_) => MetaIntrospectOperationKind::Configure,
+    }
+}
+
+/// One accepted connection carrying rkyv Signal frames: the triad
+/// length-prefix envelope wraps the contract's own Signal bytes, so the
+/// envelope owns the 4-byte length frame and the contract owns everything
+/// inside it.
+struct SignalTransport {
     connection: AcceptedConnection,
 }
 
-impl IntrospectionTransport {
+impl SignalTransport {
     fn new(connection: AcceptedConnection) -> Self {
         Self { connection }
     }
 
-    async fn read_request(
-        &mut self,
-    ) -> Result<ReceivedIntrospectionRequest, IntrospectionDaemonError> {
-        let frame_bytes = LengthPrefixedCodec::default()
+    async fn read_bytes(&mut self) -> Result<Vec<u8>, IntrospectionDaemonError> {
+        Ok(LengthPrefixedCodec::default()
             .read_body_async(self.connection.stream_mut())
             .await?
-            .into_bytes();
-        match IntrospectionFrame::decode(&frame_bytes)?.into_body() {
-            FrameBody::Request { exchange, request } => {
-                let (request, tail) = request.payloads.into_head_and_tail();
-                if !tail.is_empty() {
-                    return Err(IntrospectionDaemonError::UnexpectedFrame {
-                        got: format!("expected one introspection payload, got {}", tail.len() + 1),
-                    });
-                }
-                Ok(ReceivedIntrospectionRequest { exchange, request })
-            }
-            other => Err(IntrospectionDaemonError::UnexpectedFrame {
-                got: format!("{other:?}"),
-            }),
-        }
+            .into_bytes())
     }
 
-    async fn write_reply(
-        &mut self,
-        exchange: ExchangeIdentifier,
-        reply: IntrospectionReply,
-    ) -> Result<(), IntrospectionDaemonError> {
-        let frame = IntrospectionFrame::new(FrameBody::Reply {
-            exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
-        });
+    async fn read<Value>(&mut self) -> Result<Value, IntrospectionDaemonError>
+    where
+        Signal<Value>: Restorable<Value>,
+    {
+        let bytes = self.read_bytes().await?;
+        Ok(Signal::<Value>::from(bytes).restore()?)
+    }
+
+    async fn write(&mut self, bytes: &[u8]) -> Result<(), IntrospectionDaemonError> {
         LengthPrefixedCodec::default()
             .write_body_async(
                 self.connection.stream_mut(),
-                &LengthPrefixedFrameBody::new(frame.encode()?),
+                &FrameBody::new(bytes.to_vec()),
             )
             .await?;
         self.connection
@@ -311,82 +309,6 @@ impl IntrospectionTransport {
             .map_err(FrameError::from)?;
         Ok(())
     }
-}
-
-struct ReceivedIntrospectionRequest {
-    exchange: ExchangeIdentifier,
-    request: IntrospectionRequest,
-}
-
-/// The meta-introspect wire transport over one accepted meta connection.
-struct MetaIntrospectTransport {
-    connection: AcceptedConnection,
-}
-
-impl MetaIntrospectTransport {
-    fn new(connection: AcceptedConnection) -> Self {
-        Self { connection }
-    }
-
-    async fn read_request(
-        &mut self,
-    ) -> Result<ReceivedMetaIntrospectRequest, IntrospectionDaemonError> {
-        let frame_bytes = match LengthPrefixedCodec::default()
-            .read_body_async(self.connection.stream_mut())
-            .await
-        {
-            Ok(body) => body.into_bytes(),
-            Err(error) => return Err(error.into()),
-        };
-        match MetaIntrospectFrame::decode(&frame_bytes)?.into_body() {
-            MetaIntrospectFrameBody::Request { exchange, request } => {
-                let (operation, tail) = request.payloads.into_head_and_tail();
-                if !tail.is_empty() {
-                    return Err(IntrospectionDaemonError::UnexpectedFrame {
-                        got: format!(
-                            "expected one meta-introspect operation, got {}",
-                            tail.len() + 1,
-                        ),
-                    });
-                }
-                Ok(ReceivedMetaIntrospectRequest {
-                    exchange,
-                    operation,
-                })
-            }
-            other => Err(IntrospectionDaemonError::UnexpectedFrame {
-                got: format!("{other:?}"),
-            }),
-        }
-    }
-
-    async fn write_reply(
-        &mut self,
-        exchange: ExchangeIdentifier,
-        reply: MetaIntrospectReply,
-    ) -> Result<(), IntrospectionDaemonError> {
-        let frame = MetaIntrospectFrame::new(MetaIntrospectFrameBody::Reply {
-            exchange,
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
-        });
-        LengthPrefixedCodec::default()
-            .write_body_async(
-                self.connection.stream_mut(),
-                &LengthPrefixedFrameBody::new(frame.encode()?),
-            )
-            .await?;
-        self.connection
-            .stream_mut()
-            .flush()
-            .await
-            .map_err(FrameError::from)?;
-        Ok(())
-    }
-}
-
-struct ReceivedMetaIntrospectRequest {
-    exchange: ExchangeIdentifier,
-    operation: MetaIntrospectOperation,
 }
 
 /// A blocking client for the introspection-query socket. The `introspect` CLI
@@ -404,44 +326,16 @@ impl IntrospectionSignalClient {
         }
     }
 
-    pub fn submit(&self, request: IntrospectionRequest) -> crate::Result<IntrospectionReply> {
-        use signal_frame::{ExchangeLane, LaneSequence, SessionEpoch};
-        use std::io::{Read, Write};
+    pub fn submit(&self, query: Query) -> crate::Result<Response> {
         use std::os::unix::net::UnixStream;
 
+        let codec = LengthPrefixedCodec::default();
         let mut stream = UnixStream::connect(&self.socket)?;
-        let exchange = ExchangeIdentifier::new(
-            SessionEpoch::new(1),
-            ExchangeLane::Connector,
-            LaneSequence::new(1),
-        );
-        let request_frame = IntrospectionFrame::new(FrameBody::Request {
-            exchange,
-            request: Request::from_payload(request),
-        });
-        stream.write_all(&request_frame.encode_length_prefixed()?)?;
-        stream.flush()?;
-
-        let mut prefix = [0_u8; 4];
-        stream.read_exact(&mut prefix)?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        let mut bytes = vec![0_u8; length];
-        stream.read_exact(&mut bytes)?;
-        match IntrospectionFrame::decode(&bytes)?.into_body() {
-            FrameBody::Reply { reply, .. } => match reply {
-                Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok(payload) => Ok(payload),
-                    other => Err(Error::UnexpectedSignalFrame {
-                        got: format!("{other:?}"),
-                    }),
-                },
-                Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
-                    got: reason.to_string(),
-                }),
-            },
-            other => Err(Error::UnexpectedSignalFrame {
-                got: format!("{other:?}"),
-            }),
-        }
+        let signal = query.signalize().map_err(Error::from)?;
+        codec.write_body(&mut stream, &FrameBody::new(signal.bytes().to_vec()))?;
+        let body = codec.read_body(&mut stream)?;
+        Signal::<Response>::from(body.into_bytes())
+            .restore()
+            .map_err(Error::from)
     }
 }

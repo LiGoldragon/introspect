@@ -1,3 +1,6 @@
+//! The introspection root answers through its actor tree, and reaches a live
+//! router over the router's own contract wire.
+
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
@@ -6,11 +9,8 @@ use introspect::runtime::{
     ExplainPrototypeWitness, IntrospectionRoot, IntrospectionRootInput, TargetSocketDirectory,
 };
 use introspect::store::StoreLocation;
-use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, SessionEpoch, SubReply,
-};
-use signal_introspect::{ComponentReadiness, IntrospectionReply, PrototypeWitnessQuery};
-use signal_persona::EngineIdentifier;
+use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, SessionEpoch};
+use signal_introspect::{ComponentReadiness, PrototypeWitnessObservationQuery, Response};
 use signal_router::{
     EngineIdentifier as RouterEngineIdentifier, Frame as RouterFrame, FrameBody as RouterFrameBody,
     Input as RouterRequest, Output as RouterReply, RouterSummary,
@@ -35,6 +35,12 @@ fn exchange() -> ExchangeIdentifier {
     )
 }
 
+fn witness_query() -> PrototypeWitnessObservationQuery {
+    PrototypeWitnessObservationQuery {
+        engine_identifier: "prototype".to_owned(),
+    }
+}
+
 #[test]
 fn prototype_witness_uses_introspection_root_actor() {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -47,25 +53,23 @@ fn prototype_witness_uses_introspection_root_actor() {
             })
         })
         .expect("root starts");
-    let reply = runtime
+    let response = runtime
         .block_on(async {
             root.ask(ExplainPrototypeWitness {
-                query: PrototypeWitnessQuery {
-                    engine: EngineIdentifier::new("prototype"),
-                },
+                query: witness_query(),
             })
             .await
         })
         .expect("actor reply");
 
-    match reply {
-        IntrospectionReply::PrototypeWitness(witness) => {
-            assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
+    match response {
+        Response::PrototypeWitnessObservation(witness) => {
+            assert_eq!(witness.engine_identifier, "prototype");
             // Daemon skeleton has not yet collected peer observations;
-            // every field is None per the closed-enum contract.
-            assert_eq!(witness.delivery_status, None);
+            // every position is None per the closed contract.
+            assert_eq!(witness.delivery_trace_observation_status_option, None);
         }
-        other => panic!("expected PrototypeWitness reply, got {other:?}"),
+        other => panic!("expected PrototypeWitnessObservation, got {other:?}"),
     }
 }
 
@@ -85,18 +89,14 @@ fn prototype_witness_queries_live_router_summary_socket() {
             other => panic!("expected router request frame, got {other:?}"),
         }
 
-        let reply = RouterFrame::new(RouterFrameBody::Reply {
-            exchange: exchange(),
-            reply: Reply::committed(NonEmpty::single(SubReply::Ok(RouterReply::Summary(
-                RouterSummary {
-                    engine: RouterEngineIdentifier::new("prototype").into(),
-                    accepted_messages: 0.into(),
-                    routed_messages: 0.into(),
-                    deferred_messages: 0.into(),
-                    failed_messages: 0.into(),
-                },
-            )))),
-        });
+        let reply = RouterReply::Summary(RouterSummary {
+            engine: RouterEngineIdentifier::new("prototype").into(),
+            accepted_messages: 0.into(),
+            routed_messages: 0.into(),
+            deferred_messages: 0.into(),
+            failed_messages: 0.into(),
+        })
+        .into_reply_frame(exchange());
         stream
             .write_all(
                 reply
@@ -121,26 +121,27 @@ fn prototype_witness_queries_live_router_summary_socket() {
             })
         })
         .expect("root starts");
-    let reply = runtime
+    let response = runtime
         .block_on(async {
             root.ask(ExplainPrototypeWitness {
-                query: PrototypeWitnessQuery {
-                    engine: EngineIdentifier::new("prototype"),
-                },
+                query: witness_query(),
             })
             .await
         })
         .expect("actor reply");
 
-    match reply {
-        IntrospectionReply::PrototypeWitness(witness) => {
-            assert_eq!(witness.engine, EngineIdentifier::new("prototype"));
-            assert_eq!(witness.router_seen, Some(ComponentReadiness::Ready));
-            assert_eq!(witness.manager_seen, None);
-            assert_eq!(witness.terminal_seen, None);
-            assert_eq!(witness.delivery_status, None);
+    match response {
+        Response::PrototypeWitnessObservation(witness) => {
+            assert_eq!(witness.engine_identifier, "prototype");
+            assert_eq!(witness.first_optional_component_readiness, None);
+            assert_eq!(
+                witness.second_optional_component_readiness,
+                Some(ComponentReadiness::Ready)
+            );
+            assert_eq!(witness.third_optional_component_readiness, None);
+            assert_eq!(witness.delivery_trace_observation_status_option, None);
         }
-        other => panic!("expected PrototypeWitness reply, got {other:?}"),
+        other => panic!("expected PrototypeWitnessObservation, got {other:?}"),
     }
 
     runtime

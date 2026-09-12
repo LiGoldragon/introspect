@@ -1,16 +1,22 @@
+//! The privileged meta plane client: `meta-signal-introspect` over the
+//! owner-only meta socket.
+//!
+//! One request is one rkyv `Signal<Query>` inside a length-prefixed body; the
+//! reply is one `Signal<Response>` the same way. There is no exchange envelope
+//! and no sub-reply nesting — the contract's own frame is the wire.
+
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use meta_signal_introspect::{
-    Frame as MetaIntrospectFrame, FrameBody as MetaIntrospectFrameBody, MetaIntrospectReply,
-    Operation as MetaIntrospectOperation,
+    ByteViewable, Query as MetaIntrospectQuery, Response as MetaIntrospectResponse, Restorable,
+    Signal as MetaIntrospectSignal, Signalizable,
 };
-use nota::{NotaEncode, NotaSource};
-use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, Reply, SessionEpoch, SubReply};
-use triad_runtime::{ComponentCommand, FrameBody as RuntimeFrameBody, LengthPrefixedCodec};
+use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
-use crate::cli_argument::NotaCommandText;
+use crate::cli_argument::DatomCommandText;
+use crate::datom_text;
 use crate::{Error, Result};
 
 const DEFAULT_META_INTROSPECT_SOCKET: &str = "/tmp/meta-introspect.sock";
@@ -46,63 +52,30 @@ impl MetaIntrospectClient {
         }
     }
 
-    pub fn submit(&self, operation: MetaIntrospectOperation) -> Result<MetaIntrospectReply> {
-        let exchange = self.exchange();
-        let frame = MetaIntrospectFrame::new(MetaIntrospectFrameBody::Request {
-            exchange,
-            request: signal_frame::Request::from_payload(operation),
-        });
+    pub fn submit(&self, query: MetaIntrospectQuery) -> Result<MetaIntrospectResponse> {
         let mut stream = UnixStream::connect(self.endpoint.as_path())?;
+        let signal = query.signalize().map_err(Error::from)?;
         self.codec
-            .write_body(&mut stream, &RuntimeFrameBody::new(frame.encode()?))?;
+            .write_body(&mut stream, &FrameBody::new(signal.bytes().to_vec()))?;
         let body = self.codec.read_body(&mut stream)?;
-        self.reply_from_frame(MetaIntrospectFrame::decode(body.bytes())?)
-    }
-
-    fn exchange(&self) -> ExchangeIdentifier {
-        let _endpoint = &self.endpoint;
-        ExchangeIdentifier::new(
-            SessionEpoch::new(0),
-            ExchangeLane::Connector,
-            LaneSequence::first(),
-        )
-    }
-
-    fn reply_from_frame(&self, frame: MetaIntrospectFrame) -> Result<MetaIntrospectReply> {
-        match frame.into_body() {
-            MetaIntrospectFrameBody::Reply { reply, .. } => self.reply_output(reply),
-            other => Err(Error::UnexpectedSignalFrame {
-                got: format!("{other:?}"),
-            }),
-        }
-    }
-
-    fn reply_output(&self, reply: Reply<MetaIntrospectReply>) -> Result<MetaIntrospectReply> {
-        let _endpoint = &self.endpoint;
-        match reply {
-            Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                SubReply::Ok(payload) => Ok(payload),
-                other => Err(Error::UnexpectedSignalFrame {
-                    got: format!("{other:?}"),
-                }),
-            },
-            Reply::Rejected { reason } => Err(Error::UnexpectedSignalFrame {
-                got: reason.to_string(),
-            }),
-        }
+        MetaIntrospectSignal::<MetaIntrospectResponse>::from(body.into_bytes())
+            .restore()
+            .map_err(Error::from)
     }
 }
 
+/// The privileged `meta-introspect` CLI: one datom meta `Query` in, one datom
+/// meta `Response` out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetaIntrospectCommand {
-    command: ComponentCommand,
+    command: triad_runtime::ComponentCommand,
     environment: MetaIntrospectCommandEnvironment,
 }
 
 impl MetaIntrospectCommand {
     pub fn from_env() -> Self {
         Self {
-            command: ComponentCommand::from_environment(),
+            command: triad_runtime::ComponentCommand::from_environment(),
             environment: MetaIntrospectCommandEnvironment::from_process(),
         }
     }
@@ -127,16 +100,16 @@ impl MetaIntrospectCommand {
         Argument: Into<String>,
     {
         Self {
-            command: ComponentCommand::from_arguments(arguments),
+            command: triad_runtime::ComponentCommand::from_arguments(arguments),
             environment,
         }
     }
 
     pub fn run(self, mut output: impl Write) -> Result<()> {
-        let operation =
-            MetaIntrospectOperationText::from_command(self.command)?.into_operation()?;
-        let reply = MetaIntrospectClient::new(self.environment.endpoint()).submit(operation)?;
-        writeln!(output, "{}", reply.to_nota())?;
+        let text = DatomCommandText::from_command(self.command)?;
+        let query: MetaIntrospectQuery = datom_text::actualize(text.as_str())?;
+        let response = MetaIntrospectClient::new(self.environment.endpoint()).submit(query)?;
+        writeln!(output, "{}", datom_text::textualize(&response))?;
         Ok(())
     }
 }
@@ -162,22 +135,5 @@ impl MetaIntrospectCommandEnvironment {
 
     pub fn endpoint(&self) -> MetaIntrospectEndpoint {
         MetaIntrospectEndpoint::new(&self.socket)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct MetaIntrospectOperationText {
-    text: NotaCommandText,
-}
-
-impl MetaIntrospectOperationText {
-    fn from_command(command: ComponentCommand) -> Result<Self> {
-        Ok(Self {
-            text: NotaCommandText::from_command(command)?,
-        })
-    }
-
-    fn into_operation(self) -> Result<MetaIntrospectOperation> {
-        Ok(NotaSource::new(self.text.as_str()).parse::<MetaIntrospectOperation>()?)
     }
 }

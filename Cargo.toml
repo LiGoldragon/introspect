@@ -1,13 +1,12 @@
 [package]
 name         = "introspect"
-version      = "0.3.0"
+version      = "1.0.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/introspect"
 description  = "Persona inspection-plane daemon and CLI."
 publish      = false
-build        = "build.rs"
 
 [lib]
 name = "introspect"
@@ -26,21 +25,19 @@ name = "introspect-daemon"
 path = "src/bin/introspect_daemon.rs"
 
 [dependencies]
-kameo                     = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros"] }
-nota                 = { git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
-rkyv                      = "0.8"
-sema-engine               = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
-signal-frame              = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-persona            = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-introspect         = { git = "https://github.com/LiGoldragon/signal-introspect.git", branch = "main" }
-meta-signal-introspect    = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", branch = "main" }
-signal-router     = { git = "https://github.com/LiGoldragon/signal-router.git", branch = "main" }
-thiserror                 = "2"
-tokio                     = { version = "1", features = ["rt-multi-thread"] }
-triad-runtime             = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
-
-[build-dependencies]
-schema-rust = { git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+datom-codec            = { git = "https://github.com/LiGoldragon/datom-codec", rev = "627db67f2655efd9f786864009955005fd8ab2ad" }
+kameo                  = { git = "https://github.com/LiGoldragon/kameo.git", rev = "f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01", default-features = false, features = ["macros"] }
+meta-signal-introspect = { git = "https://github.com/LiGoldragon/meta-signal-introspect.git", rev = "3d0fd9755d7f975c87f66c9da6defff37410bf4d", features = ["datom"] }
+protos                 = { git = "https://github.com/LiGoldragon/protos", rev = "171b21f65337983ab624b7b906397a4f1f92c5a3" }
+rkyv                   = "0.8"
+sema-engine            = { git = "https://github.com/LiGoldragon/sema-engine.git", rev = "27e814a721439af67721c530d48b4d2101141f74" }
+signal-frame           = { git = "https://github.com/LiGoldragon/signal-frame.git", rev = "8aa0bcaeb29fe9e461a11706a469638d2fd109ac", default-features = false }
+signal-introspect      = { git = "https://github.com/LiGoldragon/signal-introspect.git", rev = "8de16e35a1aa993b059fcab72a2c2aa4b3a785bf", features = ["datom"] }
+signal-persona         = { git = "https://github.com/LiGoldragon/signal-persona.git", rev = "48118557368f26b7292f6b0fb2f98df5cec29fc5", features = ["datom"] }
+signal-router          = { git = "https://github.com/LiGoldragon/signal-router.git", rev = "03ed6bc2217d6a8d0ed5e1291e417ea4d4de168f", default-features = false }
+thiserror              = "2"
+tokio                  = { version = "1", features = ["rt-multi-thread"] }
+triad-runtime          = { git = "https://github.com/LiGoldragon/triad-runtime.git", rev = "02cdd49df63a1769b3cf1b2761261a87eeaa75a4" }
 
 [dev-dependencies]
 tempfile = "3"
@@ -51,4 +48,4 @@ unused      = { level = "warn", priority = -1 }
 dead_code   = { level = "warn", priority = -1 }
 
 [patch.crates-io]
-kameo = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main" }
+kameo = { git = "https://github.com/LiGoldragon/kameo.git", rev = "f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01" }

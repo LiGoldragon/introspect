@@ -1,17 +1,18 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use nota::NotaSource;
-use signal_introspect::IntrospectionRequest;
+use signal_introspect::Query;
 use triad_runtime::ComponentCommand;
 
-use crate::cli_argument::NotaCommandText;
+use crate::cli_argument::DatomCommandText;
 use crate::daemon::IntrospectionSignalClient;
+use crate::datom_text;
 use crate::error::Result;
-use crate::surface::{Input, Output};
 
 const DEFAULT_INTROSPECT_SOCKET: &str = "/tmp/introspect.sock";
 
+/// The ordinary `introspect` CLI: one datom `Query` in, one datom `Response`
+/// out, over the introspection-query socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntrospectCommandLine {
     command: ComponentCommand,
@@ -52,10 +53,10 @@ impl IntrospectCommandLine {
     }
 
     pub fn run(self, mut output: impl Write) -> Result<()> {
-        let input = IntrospectInputText::from_command(self.command)?.into_input()?;
-        let reply = IntrospectionSignalClient::new(self.environment.endpoint())
-            .submit(input.into_request())?;
-        writeln!(output, "{}", Output::from_signal(reply).to_nota())?;
+        let text = DatomCommandText::from_command(self.command)?;
+        let query: Query = datom_text::actualize(text.as_str())?;
+        let response = IntrospectionSignalClient::new(self.environment.endpoint()).submit(query)?;
+        writeln!(output, "{}", datom_text::textualize(&response))?;
         Ok(())
     }
 }
@@ -80,32 +81,5 @@ impl IntrospectCommandEnvironment {
 
     pub fn endpoint(&self) -> PathBuf {
         PathBuf::from(&self.socket)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct IntrospectInputText {
-    text: NotaCommandText,
-}
-
-impl IntrospectInputText {
-    fn from_command(command: ComponentCommand) -> Result<Self> {
-        Ok(Self {
-            text: NotaCommandText::from_command(command)?,
-        })
-    }
-
-    fn into_input(self) -> Result<Input> {
-        Ok(NotaSource::new(self.text.as_str()).parse::<Input>()?)
-    }
-}
-
-impl Input {
-    fn into_request(self) -> IntrospectionRequest {
-        match self {
-            Self::PrototypeWitness(query) => {
-                IntrospectionRequest::PrototypeWitness(query.into_signal())
-            }
-        }
     }
 }

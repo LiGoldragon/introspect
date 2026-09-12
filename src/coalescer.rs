@@ -1,21 +1,23 @@
 use std::collections::HashMap;
 
 use signal_introspect::{
-    BootIdentifier, CoalescedSystemEvent, CoalescingClosure, EventInstant, ExactCoalescingStatus,
-    ExactDuplicateIdentity, SystemEvent, SystemEventAccepted,
+    BootIdentifier, CoalescedSystemEvent, CoalescingClosure, ExactCoalescingStatus, SystemEvent,
+    SystemEventAccepted,
 };
 
+use crate::contract::{CoalescedReading, ExactDuplicateIdentity, coalesced};
+
 const DEFAULT_MAXIMUM_ACTIVE_KEYS: usize = 10_000;
-const DEFAULT_INTERVAL_MICROSECONDS: u64 = 60_000_000;
+const DEFAULT_INTERVAL_MICROSECONDS: i64 = 60_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExactCoalescingPolicy {
     maximum_active_keys: usize,
-    interval_microseconds: u64,
+    interval_microseconds: i64,
 }
 
 impl ExactCoalescingPolicy {
-    pub const fn new(maximum_active_keys: usize, interval_microseconds: u64) -> Self {
+    pub const fn new(maximum_active_keys: usize, interval_microseconds: i64) -> Self {
         Self {
             maximum_active_keys,
             interval_microseconds,
@@ -29,7 +31,7 @@ impl Default for ExactCoalescingPolicy {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CoalescingUpdate {
     current: CoalescedSystemEvent,
     closed: Vec<CoalescedSystemEvent>,
@@ -46,9 +48,9 @@ impl CoalescingUpdate {
 
     pub fn receipt(&self) -> SystemEventAccepted {
         SystemEventAccepted {
-            representative_identifier: self.current.representative.identifier,
-            count: self.current.count,
-            suppressed_count: self.current.suppressed_count,
+            event_identifier: self.current.representative().event_identifier,
+            first_integer: self.current.count(),
+            second_integer: self.current.suppressed_count(),
         }
     }
 }
@@ -57,7 +59,7 @@ impl CoalescingUpdate {
 pub struct ExactDuplicateCoalescer {
     policy: ExactCoalescingPolicy,
     active: HashMap<ExactDuplicateIdentity, CoalescedSystemEvent>,
-    evictions: u64,
+    evictions: i64,
 }
 
 impl ExactDuplicateCoalescer {
@@ -70,13 +72,14 @@ impl ExactDuplicateCoalescer {
     }
 
     pub fn ingest(&mut self, event: SystemEvent) -> CoalescingUpdate {
-        let now = event.observed_at;
-        let mut closed = self.close_expired(&event.boot, now);
-        let identity = event.exact_duplicate_identity();
+        let now = event.event_instant;
+        let boot = event.boot_identifier.clone();
+        let mut closed = self.close_expired(&boot, now);
+        let identity = ExactDuplicateIdentity::of(&event);
         if let Some(summary) = self.active.get_mut(&identity) {
-            summary.count = summary.count.saturating_add(1);
-            summary.suppressed_count = summary.count.saturating_sub(1);
-            summary.last_seen = now;
+            summary.first_integer = summary.first_integer.saturating_add(1);
+            summary.second_integer = summary.first_integer.saturating_sub(1);
+            summary.second_event_instant = now;
             return CoalescingUpdate {
                 current: summary.clone(),
                 closed,
@@ -89,7 +92,7 @@ impl ExactDuplicateCoalescer {
             closed.push(evicted);
         }
 
-        let summary = CoalescedSystemEvent::new(event, CoalescingClosure::Active);
+        let summary = coalesced(event, CoalescingClosure::Active);
         self.active.insert(identity, summary.clone());
         CoalescingUpdate {
             current: summary,
@@ -105,7 +108,7 @@ impl ExactDuplicateCoalescer {
         let identities = self
             .active
             .iter()
-            .filter(|(_, summary)| &summary.representative.boot == boot)
+            .filter(|(_, summary)| &summary.representative().boot_identifier == boot)
             .map(|(identity, _)| identity.clone())
             .collect::<Vec<_>>();
         self.close_identities(identities, closure)
@@ -118,24 +121,19 @@ impl ExactDuplicateCoalescer {
 
     pub fn status(&self) -> ExactCoalescingStatus {
         ExactCoalescingStatus {
-            active_keys: self.active.len() as u64,
-            evictions: self.evictions,
-            maximum_active_keys: self.policy.maximum_active_keys as u64,
+            first_integer: self.active.len() as i64,
+            second_integer: self.evictions,
+            third_integer: self.policy.maximum_active_keys as i64,
         }
     }
 
-    fn close_expired(
-        &mut self,
-        boot: &BootIdentifier,
-        now: EventInstant,
-    ) -> Vec<CoalescedSystemEvent> {
+    fn close_expired(&mut self, boot: &BootIdentifier, now: i64) -> Vec<CoalescedSystemEvent> {
         let identities = self
             .active
             .iter()
-            .filter(|(_, summary)| &summary.representative.boot == boot)
+            .filter(|(_, summary)| &summary.representative().boot_identifier == boot)
             .filter(|(_, summary)| {
-                now.value().saturating_sub(summary.first_seen.value())
-                    >= self.policy.interval_microseconds
+                now.saturating_sub(summary.first_seen()) >= self.policy.interval_microseconds
             })
             .map(|(identity, _)| identity.clone())
             .collect::<Vec<_>>();
@@ -151,7 +149,7 @@ impl ExactDuplicateCoalescer {
             .into_iter()
             .filter_map(|identity| self.active.remove(&identity))
             .map(|mut summary| {
-                summary.closure = closure;
+                summary.coalescing_closure = closure.clone();
                 summary
             })
             .collect()
@@ -163,13 +161,13 @@ impl ExactDuplicateCoalescer {
             .iter()
             .min_by_key(|(_, summary)| {
                 (
-                    summary.last_seen.value(),
-                    summary.representative.identifier.value(),
+                    summary.last_seen(),
+                    summary.representative().event_identifier,
                 )
             })
             .map(|(identity, _)| identity.clone())?;
         let mut summary = self.active.remove(&identity)?;
-        summary.closure = CoalescingClosure::Eviction;
+        summary.coalescing_closure = CoalescingClosure::Eviction;
         self.evictions = self.evictions.saturating_add(1);
         Some(summary)
     }
