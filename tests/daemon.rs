@@ -346,7 +346,7 @@ fn daemon_configuration(
         introspect_socket_mode: 0o600,
         supervision_socket_path: meta_socket.display().to_string(),
         supervision_socket_mode: 0o600,
-        store_path: directory.join("introspect.sema").display().to_string(),
+        store_path: directory.join("introspect.memory").display().to_string(),
         // The prototype daemon has no live peers in this harness; an empty wire
         // path means "no peer configured", so the witness reports each peer as
         // unseen rather than failing on an unreachable socket.

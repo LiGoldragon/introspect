@@ -86,7 +86,7 @@ pub struct IntrospectionEngine {
 
 impl IntrospectionEngine {
     /// Start the kameo actor tree. The body is synchronous — kameo `spawn` and
-    /// the sema-store open are sync — so the daemon shell's `build_runtime` hook
+    /// the memory-store open are sync — so the daemon shell's `build_runtime` hook
     /// (run inside the runtime's `block_on`) constructs it without a nested
     /// `block_on`. Each actor's `on_start` is trivial, so the mailbox is ready
     /// to queue requests the instant the ref exists.

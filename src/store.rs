@@ -1,11 +1,11 @@
-//! Introspect's own durable state: a `sema-engine` store of answered
+//! Introspect's own durable state: a `memory-engine` store of answered
 //! observations, delivery-trace hops, component-trace events and coalesced
 //! system-event summaries. Introspect opens this store and no other — peer
 //! observations cross daemon sockets, never peer database files.
 
 use std::path::{Path, PathBuf};
 
-use sema_engine::{
+use memory_engine::{
     Assertion, CommitLogEntry, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan,
     Retraction, SchemaHash, SchemaVersion, TableDescriptor, TableName, TableReference,
     VersionedStoreName, VersioningPolicy,
@@ -36,7 +36,7 @@ const DELIVERY_TRACE_EVENTS_FAMILY: &str = "delivery-trace-event";
 const COMPONENT_TRACE_EVENTS_FAMILY: &str = "component-trace-event";
 const SYSTEM_EVENT_SUMMARIES_FAMILY: &str = "system-event-summary";
 
-/// Per-table caps for diagnostic records kept in `introspect.sema`. The typed
+/// Per-table caps for diagnostic records kept in `introspect.memory`. The typed
 /// policy is local component state until the meta configuration contract gains
 /// a retention operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,7 +101,7 @@ impl StoreLocation {
             Some(path) => Self::new(path),
             None => match std::env::var_os("PERSONA_STATE_PATH") {
                 Some(path) => Self::new(path),
-                None => Self::new("/tmp/introspect.sema"),
+                None => Self::new("/tmp/introspect.memory"),
             },
         }
     }
@@ -190,7 +190,7 @@ impl IntrospectionStore {
     }
 
     /// The system-event family starts at archive version 1. Registration is an
-    /// additive migration under the existing sema kernel schema version: no
+    /// additive migration under the existing memory kernel schema version: no
     /// existing table archive changes, so version-3 stores remain readable.
     fn system_event_descriptor() -> TableDescriptor<StoredSystemEventSummary> {
         TableDescriptor::new(

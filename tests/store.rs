@@ -8,7 +8,7 @@ use introspect::runtime::{
 use introspect::store::{IntrospectionStore, PersistenceRetention, StoreLocation};
 use introspect::store_message::RecordDeliveryTraceEvent;
 use introspect::store_record::{ObservationSequence, StoredObservation};
-use sema_engine::{
+use memory_engine::{
     Assertion, Engine, EngineOpen, FamilyName, RecordKey, SchemaHash, SchemaVersion,
     TableDescriptor, TableName, VersionedStoreName, VersioningPolicy,
 };
@@ -33,7 +33,7 @@ impl IntrospectionStoreFixture {
     }
 
     fn store(&self) -> StoreLocation {
-        StoreLocation::new(self.directory.path().join("introspect.sema"))
+        StoreLocation::new(self.directory.path().join("introspect.memory"))
     }
 }
 
@@ -87,7 +87,7 @@ fn component_trace_event(sequence: i64) -> ComponentTraceEvent {
 }
 
 #[test]
-fn introspection_root_records_observations_through_sema_engine() {
+fn introspection_root_records_observations_through_memory_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime
@@ -173,7 +173,7 @@ fn additive_system_event_table_migration_keeps_version_three_observations_readab
 }
 
 #[test]
-fn observation_query_families_persist_through_actor_root_and_sema_engine() {
+fn observation_query_families_persist_through_actor_root_and_memory_engine() {
     let fixture = IntrospectionStoreFixture::new();
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let queries = [

@@ -1,4 +1,4 @@
-//! What introspect writes into `introspect.sema`, and the record keys it writes
+//! What introspect writes into `introspect.memory`, and the record keys it writes
 //! them under.
 //!
 //! Each stored record wraps one contract value. The key is derived from the
@@ -6,8 +6,8 @@
 //! returns exactly the rows that query selects, in the order the query wants
 //! them.
 
+use memory_engine::{EngineRecord, KeyRange, RecordKey};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use sema_engine::{EngineRecord, KeyRange, RecordKey};
 use signal_introspect::{
     CoalescedSystemEvent, ComponentTraceEvent, ComponentTraceQuery, DeliveryTraceObservationEvent,
     DeliveryTraceObservationJoinKey, DeliveryTraceObservationKey, DeliveryTraceObservationQuery,
@@ -33,11 +33,11 @@ impl ObservationSequence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservationReceipt {
     sequence: ObservationSequence,
-    snapshot: sema_engine::SnapshotIdentifier,
+    snapshot: memory_engine::SnapshotIdentifier,
 }
 
 impl ObservationReceipt {
-    pub fn new(sequence: ObservationSequence, snapshot: sema_engine::SnapshotIdentifier) -> Self {
+    pub fn new(sequence: ObservationSequence, snapshot: memory_engine::SnapshotIdentifier) -> Self {
         Self { sequence, snapshot }
     }
 
@@ -45,7 +45,7 @@ impl ObservationReceipt {
         self.sequence
     }
 
-    pub fn snapshot(&self) -> sema_engine::SnapshotIdentifier {
+    pub fn snapshot(&self) -> memory_engine::SnapshotIdentifier {
         self.snapshot
     }
 }

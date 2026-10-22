@@ -22,8 +22,8 @@ pub enum Error {
     SignalFrame(#[from] signal_frame::FrameError),
     #[error("triad runtime frame: {0}")]
     TriadRuntimeFrame(#[from] triad_runtime::FrameError),
-    #[error("sema-engine: {0}")]
-    SemaEngine(#[from] sema_engine::Error),
+    #[error("memory-engine: {0}")]
+    MemoryEngine(#[from] memory_engine::Error),
     /// A datom read or write fault, carried as the datom text of the codec's own
     /// typed `Error` — layer, path and extent included.
     #[error("datom text: {detail}")]

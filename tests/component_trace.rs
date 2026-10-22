@@ -1,7 +1,7 @@
 //! Load-bearing slice test: the end-to-end tracing -> introspect path. An
 //! emitting component PUSHES `ComponentTraceEvent` Signal frames over a Unix
 //! trace socket; introspect's `ComponentTraceListener` PULLS them off the
-//! socket into its sema store; an introspect-owned `ComponentTrace` query
+//! socket into its memory store; an introspect-owned `ComponentTrace` query
 //! returns them filtered by component and event name. No mentci, no spirit
 //! dependency — the wire record is the shared `signal-introspect` contract
 //! type both ends import.
@@ -90,7 +90,7 @@ async fn await_drained(
 fn pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name() {
     let directory = tempfile::tempdir().expect("tempdir");
     let trace_socket = directory.path().join("introspect-trace.sock");
-    let store = StoreLocation::new(directory.path().join("introspect.sema"));
+    let store = StoreLocation::new(directory.path().join("introspect.memory"));
 
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let root = runtime

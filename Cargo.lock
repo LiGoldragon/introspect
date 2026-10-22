@@ -111,7 +111,16 @@ name = "datom-codec"
 version = "0.26.3"
 source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
 dependencies = [
- "datom-codec-derive",
+ "datom-codec-derive 0.26.0",
+ "protos",
+]
+
+[[package]]
+name = "datom-codec"
+version = "0.27.0"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=6dccc76b75918a91d3370a9d4fe88aa7dd567876#6dccc76b75918a91d3370a9d4fe88aa7dd567876"
+dependencies = [
+ "datom-codec-derive 0.27.0",
  "protos",
 ]
 
@@ -119,6 +128,16 @@ dependencies = [
 name = "datom-codec-derive"
 version = "0.26.0"
 source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "datom-codec-derive"
+version = "0.27.0"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=6dccc76b75918a91d3370a9d4fe88aa7dd567876#6dccc76b75918a91d3370a9d4fe88aa7dd567876"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -158,7 +177,21 @@ name = "ethos-zero"
 version = "8.0.1"
 source = "git+https://github.com/LiGoldragon/ethos-zero?rev=de3d9928b156f2e1a92d060b7817af201abfdbef#de3d9928b156f2e1a92d060b7817af201abfdbef"
 dependencies = [
- "datom-codec",
+ "datom-codec 0.26.3",
+ "prettyplease 0.3.0",
+ "proc-macro2",
+ "protos",
+ "quote",
+ "rkyv",
+ "syn 3.0.5",
+]
+
+[[package]]
+name = "ethos-zero"
+version = "9.0.0"
+source = "git+https://github.com/LiGoldragon/ethos-zero?rev=b232d35e03011161fe7ec9129ad99a9914413348#b232d35e03011161fe7ec9129ad99a9914413348"
+dependencies = [
+ "datom-codec 0.27.0",
  "prettyplease 0.3.0",
  "proc-macro2",
  "protos",
@@ -329,15 +362,15 @@ dependencies = [
 name = "introspect"
 version = "1.0.0"
 dependencies = [
- "datom-codec",
+ "datom-codec 0.26.3",
  "kameo",
+ "memory-engine",
  "meta-signal-introspect",
  "protos",
  "rkyv",
- "sema-engine",
  "signal-frame",
  "signal-introspect",
- "signal-persona",
+ "signal-persona 2.0.1",
  "signal-router",
  "tempfile",
  "thiserror",
@@ -419,12 +452,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
-name = "meta-signal-introspect"
-version = "2.0.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?rev=3d0fd9755d7f975c87f66c9da6defff37410bf4d#3d0fd9755d7f975c87f66c9da6defff37410bf4d"
+name = "memory"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/memory.git?rev=69d91c486b335575ee5e4b0eb79da27094e700b6#69d91c486b335575ee5e4b0eb79da27094e700b6"
 dependencies = [
- "datom-codec",
- "ethos-zero",
+ "redb",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "memory-engine"
+version = "0.18.0"
+source = "git+https://github.com/LiGoldragon/memory-engine.git?rev=abf9d85166e22440440baba03358913458905b8d#abf9d85166e22440440baba03358913458905b8d"
+dependencies = [
+ "blake3",
+ "memory",
+ "rkyv",
+ "signal-sema",
+ "thiserror",
+]
+
+[[package]]
+name = "meta-signal-introspect"
+version = "2.0.1"
+source = "git+https://github.com/LiGoldragon/meta-signal-introspect.git?rev=c13d97362b0677a6aa8b4ffccb587983b1f12645#c13d97362b0677a6aa8b4ffccb587983b1f12645"
+dependencies = [
+ "datom-codec 0.27.0",
+ "ethos-zero 9.0.0",
  "protos",
  "rkyv",
  "signal-introspect",
@@ -625,29 +680,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "sema"
-version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/sema.git?rev=51d7927c872f0df12791bad8d39a4db6433b01a1#51d7927c872f0df12791bad8d39a4db6433b01a1"
-dependencies = [
- "redb",
- "rkyv",
- "thiserror",
-]
-
-[[package]]
-name = "sema-engine"
-version = "0.15.1"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?rev=27e814a721439af67721c530d48b4d2101141f74#27e814a721439af67721c530d48b4d2101141f74"
-dependencies = [
- "blake3",
- "rkyv",
- "sema",
- "signal-frame",
- "signal-sema",
- "thiserror",
-]
-
-[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -703,6 +735,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal"
+version = "5.0.0"
+source = "git+https://github.com/LiGoldragon/signal?rev=7bcb0949cdaa4501651ed519625eba48e283fac0#7bcb0949cdaa4501651ed519625eba48e283fac0"
+dependencies = [
+ "datom-codec 0.27.0",
+ "ethos-zero 9.0.0",
+ "protos",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
 name = "signal-frame"
 version = "0.3.1"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=8aa0bcaeb29fe9e461a11706a469638d2fd109ac#8aa0bcaeb29fe9e461a11706a469638d2fd109ac"
@@ -725,26 +769,28 @@ dependencies = [
 
 [[package]]
 name = "signal-introspect"
-version = "2.0.1"
-source = "git+https://github.com/LiGoldragon/signal-introspect.git?rev=8de16e35a1aa993b059fcab72a2c2aa4b3a785bf#8de16e35a1aa993b059fcab72a2c2aa4b3a785bf"
+version = "3.0.0"
+source = "git+https://github.com/LiGoldragon/signal-introspect.git?rev=2d7876d0fe803d069640a5abf543841b7b0a0478#2d7876d0fe803d069640a5abf543841b7b0a0478"
 dependencies = [
- "datom-codec",
- "ethos-zero",
+ "datom-codec 0.27.0",
+ "ethos-zero 9.0.0",
  "protos",
  "rkyv",
+ "signal",
  "signal-message",
- "signal-persona",
+ "signal-persona 4.0.0",
 ]
 
 [[package]]
 name = "signal-message"
-version = "2.0.1"
-source = "git+https://github.com/LiGoldragon/signal-message.git?rev=2da9c6dde92dda11ba53aedaa75a3f3605b51454#2da9c6dde92dda11ba53aedaa75a3f3605b51454"
+version = "3.0.0"
+source = "git+https://github.com/LiGoldragon/signal-message.git?rev=f692865ae9620d6b6bb5a140d9721e50fdc64b03#f692865ae9620d6b6bb5a140d9721e50fdc64b03"
 dependencies = [
- "datom-codec",
- "ethos-zero",
+ "datom-codec 0.27.0",
+ "ethos-zero 9.0.0",
  "protos",
  "rkyv",
+ "signal",
 ]
 
 [[package]]
@@ -752,10 +798,22 @@ name = "signal-persona"
 version = "2.0.1"
 source = "git+https://github.com/LiGoldragon/signal-persona.git?rev=48118557368f26b7292f6b0fb2f98df5cec29fc5#48118557368f26b7292f6b0fb2f98df5cec29fc5"
 dependencies = [
- "datom-codec",
- "ethos-zero",
+ "datom-codec 0.26.3",
+ "ethos-zero 8.0.1",
  "protos",
  "rkyv",
+]
+
+[[package]]
+name = "signal-persona"
+version = "4.0.0"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?rev=5ed07a66d473f4fff7b293102023fc26588a3d94#5ed07a66d473f4fff7b293102023fc26588a3d94"
+dependencies = [
+ "datom-codec 0.27.0",
+ "ethos-zero 9.0.0",
+ "protos",
+ "rkyv",
+ "signal",
 ]
 
 [[package]]
@@ -929,13 +987,12 @@ dependencies = [
 
 [[package]]
 name = "triad-runtime"
-version = "0.8.1"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?rev=02cdd49df63a1769b3cf1b2761261a87eeaa75a4#02cdd49df63a1769b3cf1b2761261a87eeaa75a4"
+version = "0.10.1"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?rev=4cc0a100841d2400f354c008c9faa73b2cedf50e#4cc0a100841d2400f354c008c9faa73b2cedf50e"
 dependencies = [
  "kameo",
  "rkyv",
  "rustix",
- "signal-frame",
  "thiserror",
  "tokio",
 ]

@@ -65,7 +65,7 @@ pub struct IntrospectionRoot {
 
 impl IntrospectionRoot {
     /// Spawn the introspection actor tree. The body is entirely synchronous —
-    /// kameo `spawn` and the sema-store open are sync — so the daemon shell's
+    /// kameo `spawn` and the memory-store open are sync — so the daemon shell's
     /// `build_runtime` (a sync hook run inside the runtime's `block_on`) can
     /// call it without a nested `block_on`.
     pub fn spawn_root(input: IntrospectionRootInput) -> Result<ActorRef<Self>> {

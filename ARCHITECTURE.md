@@ -74,8 +74,8 @@ browser-use, video editing).
   contract type, so neither end depends on the other.
 - Fan-out to component daemons over Signal.
 - Fan-in of typed observations as pushed subscription deltas.
-- **`introspect.sema`** — introspect's own typed database,
-  consumed through `sema-engine`. Stores: query/reply/error audit
+- **`introspect.memory`** — introspect's own typed database,
+  consumed through `memory-engine`. Stores: query/reply/error audit
   trail (landed); subscription registrations; delivery trace
   cache keyed by `DeliveryTraceObservationKey` (landed), populated today by
   typed ingress into `IntrospectionRoot` and eventually by Subscribe
@@ -84,7 +84,7 @@ browser-use, video editing).
   (mirroring the delivery-trace record key) so a key-range scan over one
   component returns its events in monotonic emission order. Observations
   are persisted as typed records. Persisting trace events here is the
-  persist-to-SEMA sink choice; the daemon-emitted binary frames are the same
+  persist-to-MEMORY sink choice; the daemon-emitted binary frames are the same
   whether a client persists them or only displays them.
 - The datom text plane for humans, agents, and future UIs
   (`src/datom_text.rs`). Every contract type is generated from an ethos root
@@ -113,12 +113,12 @@ browser-use, video editing).
   and error events are never sampled.
 
 Trace client behaviour is a reusable client **library**, not per-component CLI
-glue. The library owns both display and SEMA-log features; each component's
+glue. The library owns both display and MEMORY-log features; each component's
 trace CLI is a thin wrapper that enables and calls those features rather than
 reimplementing listener and decoder logic. The generic CLI trace-siting path
 lives as a `triad-runtime` helper, not one-off emitter glue.
 A client therefore chooses its sink: display the stream as datom, or persist to
-a SEMA database purpose-built for trace storage (the same `introspect.sema`
+a MEMORY database purpose-built for trace storage (the same `introspect.memory`
 shape). The emitting daemon emits typed binary trace frames regardless of which
 sink a client picks.
 
@@ -129,7 +129,7 @@ activated object's identifier, so instrumentation records only that object name
 rather than a rich per-boundary payload snapshot. The trace hooks live on the
 generated engine traits themselves as default derived no-op
 implementations — on the interface and actor contract, not as separate
-`SignalTrace` / `NexusTrace` / `SemaTrace` side traits — and a trace build
+`SignalTrace` / `NexusTrace` / `MemoryTrace` side traits — and a trace build
 overrides the default or installs a sink. Two trace forms exist: `COMPACT`
 carries only the root variant name; `EXTENDED` appends the nested variant chain
 when a variant payload is itself an enum and stops at the root when the payload
@@ -164,8 +164,8 @@ is reached only through peer daemon sockets and component contracts —
 **never by opening peer database files**. Offline store readers, if they
 ever exist, are separate debug tools.
 
-`introspect` depends on `sema-engine` for its own
-`introspect.sema`. That is a one-way dependency; `sema-engine`
+`introspect` depends on `memory-engine` for its own
+`introspect.memory`. That is a one-way dependency; `memory-engine`
 knows nothing about introspect.
 
 ## 3. Actor map
@@ -179,7 +179,7 @@ graph TD
     router["RouterClient"]
     terminal["TerminalClient"]
     trace["ComponentTraceListener<br/>(owns the bound trace socket)"]
-    store["IntrospectionStore<br/>(holds Engine handle to introspect.sema)"]
+    store["IntrospectionStore<br/>(holds Engine handle to introspect.memory)"]
     projection["DatomProjection"]
 
     root --> directory
@@ -200,7 +200,7 @@ a constraint; it is an intention, and belongs in §5.
 
 | Constraint | Witness |
 |---|---|
-| The daemon consumes `introspect.sema` through `sema-engine`. | `tests/store.rs::introspection_root_records_observations_through_sema_engine`: a root-handled query persists a typed observation record, and the reopened store exposes the `sema-engine` operation log with the expected table and record key. |
+| The daemon consumes `introspect.memory` through `memory-engine`. | `tests/store.rs::introspection_root_records_observations_through_memory_engine`: a root-handled query persists a typed observation record, and the reopened store exposes the `memory-engine` operation log with the expected table and record key. |
 | `introspect-daemon` starts from binary Signal configuration, not text. | `tests/daemon.rs::daemon_configuration_accepts_binary_file_argument` and every `DaemonProcess::spawn`: the real process entrypoint takes one rkyv file. Inline text and text files are refused by `DaemonCommand::configuration`, which accepts only `ComponentArgument::SignalFile`. |
 | The working and meta CLIs each take one datom argument or datom file and speak only to daemon sockets. | `tests/daemon.rs::introspect_cli_reaches_working_socket_and_prints_typed_witness`; `tests/daemon.rs::meta_introspect_cli_reaches_policy_socket_and_prints_typed_rejection`. Both build the argument with `datom_text::textualize` and read the printed datom back. |
 | The text plane is the contract's own codec, at the edge only. | `tests/datom_text.rs`: query, response, and both meta values round-trip through their datom text; a hand-typed `PrototypeWitnessObservation.{ prototype }` actualizes into the contract query; a malformed text faults with its datom layer and path. No codec is hand-written anywhere in the runtime path. |
@@ -210,13 +210,13 @@ a constraint; it is an intention, and belongs in §5.
 | The daemon applies the configured working and owner-meta socket modes. | `checks.*.test-daemon-applies-configured-socket-mode`; `checks.*.test-daemon-answers-typed-meta-policy-relation`. |
 | The meta socket speaks `meta-signal-introspect` as a bare Signal frame. | `tests/daemon.rs::daemon_answers_typed_meta_policy_relation` sends `Query::Configure` and receives typed `RequestUnimplemented(NotBuiltYet)` naming `MetaIntrospectOperationKind::Configure`. |
 | Component observations remain component-owned. | Dependency graph: introspect declares no observation record of its own. Every wire type comes from a peer's `ethos/signal.ethos` — `signal-introspect`, `signal-persona`, `signal-message`, `signal-router`. |
-| Every query variant arrives as one ethos-root `Query` value. | The daemon restores exactly one `Signal<Query>` per connection; the closed `Query` enum is generated from the contract's ethos root, so an unknown variant cannot be formed. Sema classification remains daemon-internal. |
+| Every query variant arrives as one ethos-root `Query` value. | The daemon restores exactly one `Signal<Query>` per connection; the closed `Query` enum is generated from the contract's ethos root, so an unknown variant cannot be formed. Memory classification remains daemon-internal. |
 | Peer observation is push subscription when the peer stream exists; before the stream lands, a prototype one-shot router observation query is allowed only as an explicit witness path and never as a timer loop. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` proves the current router path sends one typed `RouterRequest::Summary` frame and receives one typed reply. Future Subscribe paths must follow `skills/subscription-lifecycle.md`. |
 | Pushed component-internal trace events are ingested over a socket, persisted, and served by a typed `ComponentTrace` query filtered by component and event name. | `tests/component_trace.rs::pushed_signal_trace_events_are_ingested_and_queryable_by_component_and_name` spawns the real `IntrospectionRoot` with a temp trace socket, pushes three events through `TraceLog::<TracedComponentEvent>::socket`, and asserts the `ComponentTrace` query returns three in sequence order, then exactly one under an event-name filter. |
 | Targeted system events cross the ordinary binary Signal socket, coalesce exactly, persist, and return through typed query. | `tests/daemon.rs::targeted_system_event_socket_ingestion_is_durable_and_typed_queryable` drives two duplicate warning events through the real daemon socket and reads one durable typed summary with count/first/last/suppressed identity. |
 | Active duplicate keys are bounded and closure causes stay distinct. | `tests/coalescer.rs` covers exact identity, interval closure, explicit and shutdown flush, boot partitioning, and observable eviction and cardinality. |
 | Unclassified targeted input never retains a message preview. | `contract::validate_system_event` refuses it at admission. The contract no longer carries this policy, so it is introspect's: the store calls it before any coalescing or persistence. |
-| Adding the system-event family does not rewrite old archives. The sema kernel remains schema version 3 because existing families are byte-identical; the additive `system-event-summary` family starts at archive version 1. | `tests/store.rs::additive_system_event_table_migration_keeps_version_three_observations_readable` creates a pre-family version-3 store, then opens it with the new registration and reads the old observation. |
+| Adding the system-event family does not rewrite old archives. The memory kernel remains schema version 3 because existing families are byte-identical; the additive `system-event-summary` family starts at archive version 1. | `tests/store.rs::additive_system_event_table_migration_keeps_version_three_observations_readable` creates a pre-family version-3 store, then opens it with the new registration and reads the old observation. |
 | `DeliveryTraceObservationKey` is introspection-domain state with four positions: engine identifier, message slot, originator component name, and hop index. | `tests/store.rs::delivery_trace_query_returns_four_hops_ordered_by_trace_key` records matching and non-matching events, range-queries by the join key, and reads back only the four matching hops ordered by `hop_index`. |
 | Bounded retention reclaims the oldest diagnostic rows. | `tests/store.rs::bounded_observation_retention_reclaims_oldest_rows`; `tests/store.rs::bounded_trace_retention_keeps_a_finite_queryable_window`. |
 | `RouterClient` asks `RouterRequest::Summary` over the router socket when one is configured, and composes the typed `RouterSummary` reply into the router position of `PrototypeWitnessObservation`. | `tests/actor_runtime_truth.rs::prototype_witness_queries_live_router_summary_socket` starts a live router-frame peer socket, runs the real `IntrospectionRoot`, and asserts the router readiness position is `Some(ComponentReadiness::Ready)`. |
@@ -230,7 +230,7 @@ through the Kameo root. It also binds the owner meta socket and serves
 `meta-signal-introspect` Signal frames; `Configure` is admitted to the wire but
 returns typed `RequestUnimplemented(NotBuiltYet)` until hot reconfiguration
 has a reducer. `IntrospectionStore` consumes
-`introspect.sema` via `sema-engine`; the query/reply audit trail
+`introspect.memory` via `memory-engine`; the query/reply audit trail
 is persisted as typed records through `Engine::assert`.
 
 The remaining work:
@@ -264,9 +264,9 @@ The remaining work:
   close, final typed acknowledgement, end. The introspect store
   consumes the deltas through `Engine::assert` so the audit trail
   remains durable.
-- **Subscription primitive in sema-engine.** `Engine::subscribe`
+- **Subscription primitive in memory-engine.** `Engine::subscribe`
   is the only path that registers introspect-side subscriptions
-  to peer streams. Gated on sema-engine's per-peer
+  to peer streams. Gated on memory-engine's per-peer
   commit-then-emit semantics. Destination: `SubscribeComponent`
   wire variant + forwarded peer subscriptions + cache-backed
   `DeliveryTrace`. Until then, `DeliveryTrace` is populated by the

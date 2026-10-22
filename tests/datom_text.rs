@@ -28,7 +28,7 @@ fn daemon_configuration() -> IntrospectDaemonConfiguration {
         introspect_socket_mode: 0o600,
         supervision_socket_path: "/tmp/meta-introspect.sock".to_owned(),
         supervision_socket_mode: 0o600,
-        store_path: "/tmp/introspect.sema".to_owned(),
+        store_path: "/tmp/introspect.memory".to_owned(),
         manager_socket_path: String::new(),
         router_socket_path: String::new(),
         terminal_socket_path: String::new(),

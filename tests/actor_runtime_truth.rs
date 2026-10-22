@@ -49,7 +49,7 @@ fn prototype_witness_uses_introspection_root_actor() {
         .block_on(async {
             IntrospectionRoot::spawn_root(IntrospectionRootInput {
                 targets: TargetSocketDirectory::empty(),
-                store: StoreLocation::new(directory.path().join("introspect.sema")),
+                store: StoreLocation::new(directory.path().join("introspect.memory")),
             })
         })
         .expect("root starts");
@@ -117,7 +117,7 @@ fn prototype_witness_queries_live_router_summary_socket() {
                     terminal_socket: None,
                     trace_socket: None,
                 },
-                store: StoreLocation::new(directory.path().join("introspect.sema")),
+                store: StoreLocation::new(directory.path().join("introspect.memory")),
             })
         })
         .expect("root starts");

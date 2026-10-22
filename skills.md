@@ -26,8 +26,8 @@ Before changing code in this repo, read:
   listener tiers, the connection spine, the exit report. It is component-
   agnostic; everything component-specific reaches it through `ComponentDaemon`.
 - Runtime fan-out to component daemons over Signal.
-- Local observation audit state in `introspect.sema`, opened through
-  `sema-engine`.
+- Local observation audit state in `introspect.memory`, opened through
+  `memory-engine`.
 - `introspect-daemon` starts from one signal-encoded rkyv
   `IntrospectDaemonConfiguration` file. Inline text and text files are
   rejected as startup arguments.
